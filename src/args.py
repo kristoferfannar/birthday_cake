@@ -14,6 +14,7 @@ class Args:
     children: int
     export_cake: str | None
     debug: bool
+    sandbox: bool
 
 
 def get_cake_dir():
@@ -101,6 +102,12 @@ def get_args() -> Args:
         default=10,
     )
     parser.add_argument("--debug", "-d", action="store_true", help="Display debug info")
+    parser.add_argument(
+        "--sandbox",
+        "-x",
+        action="store_true",
+        help="Load cakes in sandbox environment. Implies `--gui` flag.",
+    )
 
     # users cannot import and export a cake simultaneously
     group = parser.add_mutually_exclusive_group()
@@ -115,13 +122,14 @@ def get_args() -> Args:
     export_cake = sanitize_export_cake(namespace.export_cake)
 
     args = Args(
-        gui=namespace.gui,
+        gui=namespace.gui or namespace.sandbox,
         player=player,
         import_cake=import_cake,
         seed=seed,
         children=namespace.children,
         export_cake=export_cake,
         debug=namespace.debug,
+        sandbox=namespace.sandbox,
     )
 
     return args

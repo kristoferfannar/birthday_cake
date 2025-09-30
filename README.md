@@ -46,6 +46,7 @@ The simulation can be configured using a variety of command-line arguments. If n
 | `--seed`        | `<random>` | Provides a seed for the random number generator to ensure reproducible simulations.                                                                                              |
 | `--import-cake` | `N/A`      | Provide a file path to load the cake from. Must be inside the `cakes/` directory. If omitted, a cake is generated from the random seed. Mutually exclusive with `--export-cake`. |
 | `--export-cake` | `N/A`      | Provide a file path to save the generated cake to. Must be inside the `cakes/` directory. Mutually exclusive with `--import-cake`.                                               |
+| `--sandbox`     | `False`    | Omits special cake restrictions set by the project. Used for admiring cakes without cutting them.                                                                                |
 
 ---
 

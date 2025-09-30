@@ -42,12 +42,15 @@ def copy_geom(g):
 
 
 class Cake:
-    def __init__(self, p: Polygon, num_children: int) -> None:
+    def __init__(self, p: Polygon, num_children: int, sandbox: bool) -> None:
         self.exterior_shape = p
         self.interior_shape = generate_interior(p)
         self.exterior_pieces = [p]
+        self.sandbox = sandbox
 
-        assert_cake_is_valid(self.exterior_shape, self.interior_shape, num_children)
+        assert_cake_is_valid(
+            self.exterior_shape, self.interior_shape, num_children, self.sandbox
+        )
 
     def copy(self):
         new = object.__new__(Cake)
@@ -314,6 +317,7 @@ def get_polygon_angles(p: Polygon) -> list[float]:
 
 
 def cake_angles_are_ok(cake: Polygon):
+    print(get_polygon_angles(cake))
     return all([angle >= c.MIN_CAKE_ANGLE_DEGREE for angle in get_polygon_angles(cake)])
 
 
@@ -333,7 +337,7 @@ def generate_interior(exterior: Polygon) -> Polygon | MultiPolygon:
 
 
 def assert_cake_is_valid(
-    cake: Polygon, interior: Polygon | MultiPolygon, num_children: int
+    cake: Polygon, interior: Polygon | MultiPolygon, num_children: int, sandbox: bool
 ):
     ok, reason = cake_is_ok(cake)
     if not ok:
@@ -343,9 +347,12 @@ def assert_cake_is_valid(
     if not ok:
         raise InvalidCakeException(f"interior is invalid: {reason}")
 
+    # if we're running in a sandbox, we don't care about the additional constraints
+    if sandbox:
+        return
+
     if not cake_angles_are_ok(cake):
-        return (
-            False,
+        raise InvalidCakeException(
             f"Cake has at least one angle < {c.MIN_CAKE_ANGLE_DEGREE} degrees",
         )
 
@@ -365,13 +372,13 @@ def assert_cake_is_valid(
         )
 
 
-def read_cake(cake_path: str, num_children: int) -> Cake:
+def read_cake(cake_path: str, num_children: int, sandbox: bool) -> Cake:
     vertices = [
         list(map(float, line.strip().split(",")))
         for line in open(cake_path, "r").readlines()[1:]
     ]
 
-    return Cake(Polygon(vertices), num_children)
+    return Cake(Polygon(vertices), num_children, sandbox)
 
 
 def write_cake(cake_path: str, cake: Cake):
@@ -412,7 +419,7 @@ def attempt_cake_generation(num_vertices: int) -> Polygon:
     return p
 
 
-def generate_cake(children: int) -> Cake:
+def generate_cake(children: int, sandbox: bool) -> Cake:
     # the minimum amount of vertices for the cake polygon
     lo = max(3, int(children / 2))
     # and the maximum..
@@ -424,7 +431,7 @@ def generate_cake(children: int) -> Cake:
     for _ in range(attempts):
         try:
             attempted_cake = attempt_cake_generation(num_vertices)
-            cake = Cake(attempted_cake, children)
+            cake = Cake(attempted_cake, children, sandbox)
 
             print(
                 f"Generated cake with {len(attempted_cake.exterior.coords) - 1} vertices"
@@ -439,8 +446,8 @@ def generate_cake(children: int) -> Cake:
 
 def cake_from_args(args: Args) -> Cake:
     if args.import_cake:
-        return read_cake(args.import_cake, args.children)
-    gen_cake = generate_cake(args.children)
+        return read_cake(args.import_cake, args.children, args.sandbox)
+    gen_cake = generate_cake(args.children, args.sandbox)
 
     if args.export_cake:
         write_cake(args.export_cake, gen_cake)

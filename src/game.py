@@ -278,13 +278,16 @@ class Game:
         self.args = args
         self.cake = cake_from_args(self.args)
 
-        self.player = (self.get_player())(
-            children=self.args.children,
-            cake=self.cake.copy(),
-            cake_path=self.args.import_cake,
-        )
+        if not self.args.sandbox:
+            self.player = (self.get_player())(
+                children=self.args.children,
+                cake=self.cake.copy(),
+                cake_path=self.args.import_cake,
+            )
 
         if self.args.gui:
+            self.pieces = None
+
             self.root = tk.Tk()
             self.root.title("Birthday cake")
 
@@ -300,25 +303,24 @@ class Game:
             )
             self.canvas.pack(fill="both", expand=True)
 
-            self.right_frame = tk.Frame(
-                self.root, bg="#f3f3f3", width=c.CANVAS_WIDTH * c.INFO_PORTION
-            )
-            self.right_frame.pack(side="right", fill="y")
-            self.right_frame.pack_propagate(False)
-            self.pieces = None
+            if not self.args.sandbox:
+                self.right_frame = tk.Frame(
+                    self.root, bg="#f3f3f3", width=c.CANVAS_WIDTH * c.INFO_PORTION
+                )
+                self.right_frame.pack(side="right", fill="y")
+                self.right_frame.pack_propagate(False)
+                self.info = tk.Canvas(
+                    self.right_frame,
+                    height=c.CANVAS_HEIGHT,
+                    width=c.CANVAS_WIDTH * c.INFO_PORTION,
+                    bg=c.CANVAS_BG,
+                )
+                self.info.pack(fill="both", expand=True, padx=8, pady=8)
 
-            self.info = tk.Canvas(
-                self.right_frame,
-                height=c.CANVAS_HEIGHT,
-                width=c.CANVAS_WIDTH * c.INFO_PORTION,
-                bg=c.CANVAS_BG,
-            )
-            self.info.pack(fill="both", expand=True, padx=8, pady=8)
-
-            self.create_buttons()
+                self.create_buttons()
             self.draw_cake()
 
         if self.args.gui:
             self.root.mainloop()
-        else:
+        elif not self.args.sandbox:
             self.play()
