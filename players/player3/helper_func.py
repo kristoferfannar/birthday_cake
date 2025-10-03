@@ -3,10 +3,10 @@ from shapely.geometry import LineString
 from src.cake import Cake
 
 def get_perimeter_points(cake: Cake) -> list[Point]:
-    vertices = list(cake.exterior_shape.exterior.coords)
+    
     largest_piece = max(cake.exterior_pieces, key=lambda p: p.area)
     vertices = list(largest_piece.exterior.coords)
-    print(vertices)
+
     gen_points = []
     num_points = 50  # number of points to generate per edge
 
@@ -52,11 +52,8 @@ def get_areas(cake: Cake, xy1: Point, xy2: Point, target_ratio: float = 0.5, acc
     target_area = original_area * target_ratio
 
     # check if one piece is the target area of 1/children
-    area_diff_0 = abs(areas[0] - target_area)
-    area_diff_1 = abs(areas[1] - target_area)
-
-    if area_diff_0 <= acceptable_error or area_diff_1 <= acceptable_error:
-        return True, min(area_diff_0, area_diff_1)
+    if abs(areas[0] - target_area) <= acceptable_error or abs(areas[1] - target_area) <= acceptable_error:
+        return True, min(abs(areas[0] - target_area), abs(areas[1] - target_area))
 
     return False, None
 
@@ -73,7 +70,7 @@ def find_valid_cuts(cake: Cake, perim_points: list[Point] | None = None, target_
         for i, xy1 in enumerate(piece_xy):
             for xy2 in piece_xy[i+1:]:
                 if cake.cut_is_valid(xy1, xy2):
-                    areas_valid, area_diff = get_areas(cake, xy1, xy2, target_ratio, original_area=original_area)
+                    areas_valid, area_diff = get_areas(cake, xy1, xy2, target_ratio, original_area)
 
                     if areas_valid:
                         valid_cuts.append((xy1, xy2, piece, area_diff))
