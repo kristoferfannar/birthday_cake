@@ -4,6 +4,8 @@ from src.cake import Cake
 
 def get_perimeter_points(cake: Cake) -> list[Point]:
     vertices = list(cake.exterior_shape.exterior.coords)
+    largest_piece = max(cake.exterior_pieces, key=lambda p: p.area)
+    vertices = list(largest_piece.exterior.coords)
     print(vertices)
     gen_points = []
     num_points = 50  # number of points to generate per edge
@@ -28,7 +30,7 @@ def get_perimeter_points(cake: Cake) -> list[Point]:
     # print(all_points)
     return gen_points
 
-def get_areas(cake: Cake, xy1: Point, xy2: Point, target_ratio: float = 0.5, acceptable_error: float = 0.5) -> tuple[bool, float | None]:
+def get_areas(cake: Cake, xy1: Point, xy2: Point, target_ratio: float = 0.5, acceptable_error: float = 0.5, original_area=None) -> tuple[bool, float | None]:
     # find cuts that produce pieces with target ratio
     # target_ratio = 1/24 means cut off 1/24 of the piece
     # acceptable_error is in cm^2 so 0.5 means 0.5 cm^2
@@ -46,10 +48,10 @@ def get_areas(cake: Cake, xy1: Point, xy2: Point, target_ratio: float = 0.5, acc
 
     areas = [piece.area for piece in split_pieces]
 
-    # Check if one piece has the target ratio of the original
-    target_area = target_piece.area * target_ratio
+    # check the ratio with whole cake area
+    target_area = original_area * target_ratio
 
-    # Check if either piece matches the target (within tolerance)
+    # check if one piece is the target area of 1/children
     area_diff_0 = abs(areas[0] - target_area)
     area_diff_1 = abs(areas[1] - target_area)
 
@@ -59,7 +61,7 @@ def get_areas(cake: Cake, xy1: Point, xy2: Point, target_ratio: float = 0.5, acc
     return False, None
 
 # probably can use binary search to make this faster and optimize our search route instead of n^2 time complexity going through each point
-def find_valid_cuts(cake: Cake, perim_points: list[Point] | None = None, target_ratio: float = 0.5) -> list[tuple[Point, Point, Polygon]]:
+def find_valid_cuts(cake: Cake, perim_points: list[Point] | None = None, target_ratio: float = 0.5, original_area=None) -> list[tuple[Point, Point, Polygon]]:
     valid_cuts = []
 
     for piece in cake.exterior_pieces:
@@ -71,7 +73,7 @@ def find_valid_cuts(cake: Cake, perim_points: list[Point] | None = None, target_
         for i, xy1 in enumerate(piece_xy):
             for xy2 in piece_xy[i+1:]:
                 if cake.cut_is_valid(xy1, xy2):
-                    areas_valid, area_diff = get_areas(cake, xy1, xy2, target_ratio)
+                    areas_valid, area_diff = get_areas(cake, xy1, xy2, target_ratio, original_area=original_area)
 
                     if areas_valid:
                         valid_cuts.append((xy1, xy2, piece, area_diff))
