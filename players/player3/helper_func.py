@@ -3,7 +3,6 @@ from shapely.geometry import LineString
 from src.cake import Cake
 
 def get_perimeter_points(cake: Cake) -> list[Point]:
-    
     largest_piece = max(cake.exterior_pieces, key=lambda p: p.area)
     vertices = list(largest_piece.exterior.coords)
 
@@ -30,10 +29,11 @@ def get_perimeter_points(cake: Cake) -> list[Point]:
     # print(all_points)
     return gen_points
 
-def get_areas(cake: Cake, xy1: Point, xy2: Point, target_ratio: float = 0.5, acceptable_error: float = 0.5, original_area=None) -> tuple[bool, float | None]:
+def get_areas(cake: Cake, xy1: Point, xy2: Point, target_ratio: float = 0.5, original_area: float =None) -> tuple[bool, float | None]:
     # find cuts that produce pieces with target ratio
     # target_ratio = 1/24 means cut off 1/24 of the piece
     # acceptable_error is in cm^2 so 0.5 means 0.5 cm^2
+    acceptable_error: float = 0.5
     valid, _ = cake.cut_is_valid(xy1, xy2)
 
     if not valid:
@@ -58,17 +58,13 @@ def get_areas(cake: Cake, xy1: Point, xy2: Point, target_ratio: float = 0.5, acc
     return False, None
 
 # probably can use binary search to make this faster and optimize our search route instead of n^2 time complexity going through each point
-def find_valid_cuts(cake: Cake, perim_points: list[Point] | None = None, target_ratio: float = 0.5, original_area=None) -> list[tuple[Point, Point, Polygon]]:
+def find_valid_cuts(cake: Cake, perim_points: list[Point] | None = None, target_ratio: float = 0.5, original_area: float = None) -> list[tuple[Point, Point, Polygon]]:
     valid_cuts = []
-
     for piece in cake.exterior_pieces:
 
-        # get points on this piece's perimeter
-        piece_xy = [p for p in perim_points if cake.point_lies_on_piece_boundary(p, piece)]
-
         # try all pairs
-        for i, xy1 in enumerate(piece_xy):
-            for xy2 in piece_xy[i+1:]:
+        for i, xy1 in enumerate(perim_points):
+            for xy2 in perim_points[i+1:]:
                 if cake.cut_is_valid(xy1, xy2):
                     areas_valid, area_diff = get_areas(cake, xy1, xy2, target_ratio, original_area)
 
