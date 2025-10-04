@@ -10,6 +10,7 @@ from math import hypot
 
 import src.constants as c
 
+
 @dataclass
 class CutResult:
     polygons: list[Polygon]
@@ -48,16 +49,13 @@ class Player6(Player):
     def __cut_is_within_cake(self, cut: LineString, polygon: Polygon) -> bool:
         outside = cut.difference(polygon.buffer(c.TOL * 2))
         return outside.is_empty
-    
+
     def get_intersecting_pieces_from_point(self, p: Point, polygons: list[Polygon]):
         touched_pieces = [
-            piece
-            for piece in polygons
-            if self.point_lies_on_piece_boundary(p, piece)
+            piece for piece in polygons if self.point_lies_on_piece_boundary(p, piece)
         ]
 
         return touched_pieces
-    
 
     def get_scaled_vertex_points(self):
         x_offset, y_offset = self.get_offsets()
@@ -86,7 +84,6 @@ class Player6(Player):
         return p.distance(piece.boundary) <= c.TOL
 
     def get_cuttable_piece(self, from_p: Point, to_p: Point, polygons: list[Polygon]):
-        
         print("get_cuttable_pieces: ", from_p, to_p, polygons)
         a_pieces = self.get_intersecting_pieces_from_point(from_p, polygons)
         b_pieces = self.get_intersecting_pieces_from_point(to_p, polygons)
@@ -113,7 +110,7 @@ class Player6(Player):
             return None, reason
 
         return piece, ""
-    
+
     def does_line_cut_piece_well(self, line: LineString, piece: Polygon):
         """Checks whether line cuts piece in two valid (large enough) pieces"""
         if piece.touches(line):
@@ -133,7 +130,9 @@ class Player6(Player):
 
         return True, ""
 
-    def cut_is_valid(self, from_p: Point, to_p: Point, polygon: Polygon) -> tuple[bool, str]:
+    def cut_is_valid(
+        self, from_p: Point, to_p: Point, polygon: Polygon
+    ) -> tuple[bool, str]:
         """Check whether a cut from `from_p` to `to_p` is valid.
 
         If invalid, the method returns the reason as the second argument.
@@ -149,7 +148,7 @@ class Player6(Player):
             return False, reason
 
         return True, "valid"
-    
+
     def virtual_cut(self, piece: Polygon, cut: LineString) -> CutResult:
         """
         Make a virtual cut over our existing cake(piece)
@@ -162,7 +161,7 @@ class Player6(Player):
         # [0.0, 1.0]
         # >>> list(y)
         # [0.0, 1.0]
-        #x, y = cut.coords
+        # x, y = cut.coords
         coords = list(cut.coords)
         from_p, to_p = Point(coords[0]), Point(coords[1])
 
@@ -191,72 +190,82 @@ class Player6(Player):
         split_pieces: list[Polygon] = [
             cast(Polygon, geom) for geom in split_piece.geoms
         ]
-        #point1, point2 = line.coords
-        #output = CutResult(polygons=split_pieces, points=(Point(point1), Point(point2)))
+        # point1, point2 = line.coords
+        # output = CutResult(polygons=split_pieces, points=(Point(point1), Point(point2)))
         output = CutResult(polygons=split_pieces, points=(a, b))
 
         return output
-    
+
     def current_polygon(self, points: tuple[Point, Point], polygons: list[Polygon]):
         res = set()
         print("POINTS in current polygon : ", points)
         for polygon in polygons:
-            print("COORDS: ", [(x,y) for x,y in polygon.exterior.coords])
-            for x,y in polygon.exterior.coords:
+            print("COORDS: ", [(x, y) for x, y in polygon.exterior.coords])
+            for x, y in polygon.exterior.coords:
                 for point in points:
                     if point.x == x and point.y == y:
                         res.add(polygon)
         return res
 
-    
     def score_cut(self, res: CutResult) -> float:
         target_area = self.cake.get_area() / self.children
         polygons = self.current_polygon(res.points, res.polygons)
         print("Len of polygon ", polygons)
         if len(polygons) != 2:
-            return float('inf')
+            return float("inf")
         print("Score CUT: ", [abs(polygon.area - target_area) for polygon in polygons])
         return min(abs(polygon.area - target_area) for polygon in polygons)
-            
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Generate cuts to divide the cake among children using alternating x and y slices."""
         print(f"DEBUG: Starting get_cuts for {self.children} children")
         print(f"DEBUG: Cake bounds: {self.cake.exterior_shape.bounds}")
-        
+
         min_x, min_y, max_x, max_y = self.cake.exterior_shape.bounds
         result: list[tuple[Point, Point]] = []
         largest_piece = self.get_max_piece(self.cake.exterior_pieces)
-        
+
         print(f"DEBUG: Initial largest piece area: {largest_piece.area}")
-        
+
         # Generate cuts incrementally
         for i in np.arange(1, self.children, 0.8):
-            print(f"\nDEBUG: === Cut {i}/{self.children-1} ===")
+            print(f"\nDEBUG: === Cut {i}/{self.children - 1} ===")
             largest_piece = self.get_max_piece(self.cake.exterior_pieces)
             # Try x-slice first, then y-slice if x fails
-            cut_result_1 = self._try_x_slice(i, min_x, max_x, min_y, max_y, largest_piece)
-            cut_result_2 = self._try_y_slice(i, min_x, max_x, min_y, max_y, largest_piece)
-            
+            cut_result_1 = self._try_x_slice(
+                i, min_x, max_x, min_y, max_y, largest_piece
+            )
+            cut_result_2 = self._try_y_slice(
+                i, min_x, max_x, min_y, max_y, largest_piece
+            )
+
             cuts = [cut_result_1, cut_result_2]
             print("CUTS: ", cuts)
-            best = min(cuts, key=lambda cut: self.score_cut(cut) if cut else float('inf'))
+            best = min(
+                cuts, key=lambda cut: self.score_cut(cut) if cut else float("inf")
+            )
             if best:
                 result.append(best.points)
                 self.cake.cut(best.points[0], best.points[1])
-                
-        
+
         print(f"DEBUG: Generated {len(result)} cuts: {result}")
-        return result[:self.children-1]
-    
-    def _try_x_slice(self, iteration: int, min_x: float, max_x: float, 
-                     min_y: float, max_y: float, piece: Polygon) -> CutResult | None:
+        return result[: self.children - 1]
+
+    def _try_x_slice(
+        self,
+        iteration: int,
+        min_x: float,
+        max_x: float,
+        min_y: float,
+        max_y: float,
+        piece: Polygon,
+    ) -> CutResult | None:
         """Attempt to make a vertical cut at the given iteration."""
         x_position = iteration / self.children * (max_x - min_x) + min_x
         x_slice = LineString([[x_position, min_y], [x_position, max_y]])
-        
+
         print(f"DEBUG: Trying x-slice at x={x_position}")
-        
+
         # Find intersection with the piece
         intersections = intersection(x_slice, piece)
         if isinstance(intersections, LineString) and not intersections.is_empty:
@@ -266,15 +275,22 @@ class Player6(Player):
         else:
             print(f"DEBUG: X-slice doesn't intersect piece properly: {intersections}")
             return None
-    
-    def _try_y_slice(self, iteration: int, min_x: float, max_x: float,
-                     min_y: float, max_y: float, piece: Polygon) -> CutResult | None:
+
+    def _try_y_slice(
+        self,
+        iteration: int,
+        min_x: float,
+        max_x: float,
+        min_y: float,
+        max_y: float,
+        piece: Polygon,
+    ) -> CutResult | None:
         """Attempt to make a horizontal cut at the given iteration."""
         y_position = iteration / self.children * (max_y - min_y) + min_y
         y_slice = LineString([[min_x, y_position], [max_x, y_position]])
-        
+
         print(f"DEBUG: Trying y-slice at y={y_position}")
-        
+
         # Find intersection with the piece
         intersections = intersection(y_slice, piece)
         if isinstance(intersections, LineString) and not intersections.is_empty:
