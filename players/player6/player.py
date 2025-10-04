@@ -214,7 +214,7 @@ class Player6(Player):
         polygons = self.current_polygon(res.points, res.polygons)
         print("Len of polygon ", polygons)
         if len(polygons) != 2:
-            return [float('inf')]
+            return float('inf')
         print("Score CUT: ", [abs(polygon.area - target_area) for polygon in polygons])
         return min(abs(polygon.area - target_area) for polygon in polygons)
             
