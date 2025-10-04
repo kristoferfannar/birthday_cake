@@ -5,6 +5,7 @@ from shapely.geometry import Polygon, LineString, Point
 from shapely import intersection
 from shapely.ops import split
 from typing import cast
+import numpy as np
 from math import hypot
 
 import src.constants as c
@@ -196,20 +197,26 @@ class Player6(Player):
 
         return output
     
-    def current_polygon(self, points: tuple[Point, Point], polygon: Polygon):
-        res = []
-        for x,y in polygon.exterior.coords:
-            if Point([x,y]) in points:
-                res.append(polygon)
+    def current_polygon(self, points: tuple[Point, Point], polygons: list[Polygon]):
+        res = set()
+        print("POINTS in current polygon : ", points)
+        for polygon in polygons:
+            print("COORDS: ", [(x,y) for x,y in polygon.exterior.coords])
+            for x,y in polygon.exterior.coords:
+                for point in points:
+                    if point.x == x and point.y == y:
+                        res.add(polygon)
         return res
 
     
     def score_cut(self, res: CutResult) -> float:
         target_area = self.cake.get_area() / self.children
         polygons = self.current_polygon(res.points, res.polygons)
-        if len(polygons) > 2:
-            raise "Expected 2 polygons"
-        return [abs(polygon.area - target_area) for polygon in polygons]
+        print("Len of polygon ", polygons)
+        if len(polygons) != 2:
+            return [float('inf')]
+        print("Score CUT: ", [abs(polygon.area - target_area) for polygon in polygons])
+        return min(abs(polygon.area - target_area) for polygon in polygons)
             
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
@@ -224,28 +231,23 @@ class Player6(Player):
         print(f"DEBUG: Initial largest piece area: {largest_piece.area}")
         
         # Generate cuts incrementally
-        for i in range(1, self.children):
+        for i in np.arange(1, self.children, 0.8):
             print(f"\nDEBUG: === Cut {i}/{self.children-1} ===")
-            
+            largest_piece = self.get_max_piece(self.cake.exterior_pieces)
             # Try x-slice first, then y-slice if x fails
             cut_result_1 = self._try_x_slice(i, min_x, max_x, min_y, max_y, largest_piece)
             cut_result_2 = self._try_y_slice(i, min_x, max_x, min_y, max_y, largest_piece)
             
             cuts = [cut_result_1, cut_result_2]
-
-            for cut in cuts:
-                min(self.score_cut(cut))
+            print("CUTS: ", cuts)
+            best = min(cuts, key=lambda cut: self.score_cut(cut) if cut else float('inf'))
+            if best:
+                result.append(best.points)
+                self.cake.cut(best.points[0], best.points[1])
                 
-            if cut_result:
-                largest_piece = self.get_max_piece(cut_result.polygons)
-                result.append(cut_result.points)
-                print(f"DEBUG: Cut successful, new largest piece area: {largest_piece.area}")
-            else:
-                print(f"DEBUG: No valid cut found for iteration {i}")
-                break
         
         print(f"DEBUG: Generated {len(result)} cuts: {result}")
-        return result
+        return result[:self.children-1]
     
     def _try_x_slice(self, iteration: int, min_x: float, max_x: float, 
                      min_y: float, max_y: float, piece: Polygon) -> CutResult | None:
