@@ -42,7 +42,9 @@ class Player6(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
         self.target_area = self.cake.get_area() / self.children
-        self.target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
+        self.target_ratio = (
+            self.cake.interior_shape.area / self.cake.exterior_shape.area
+        )
 
     def find_common_points(self, pieces: list[Polygon]) -> tuple[tuple[float, float]]:
         """Find the vertices of the new cake polygon once cut"""
@@ -203,9 +205,8 @@ class Player6(Player):
                     if point.x == x and point.y == y:
                         res.add(polygon)
         return res
-    
-    def get_piece_ratio(self, piece: Polygon):
 
+    def get_piece_ratio(self, piece: Polygon):
         if piece.intersects(self.cake.interior_shape):
             inter = piece.intersection(self.cake.interior_shape)
             return inter.area / piece.area if not inter.is_empty else 0
@@ -213,16 +214,18 @@ class Player6(Player):
 
     def score_cut(self, cut: CutResult) -> tuple[float, float]:
         if cut is None:
-            return (float('inf'), float('inf'))
+            return (float("inf"), float("inf"))
 
         polygons = self.current_polygon(cut)
-        
 
         if len(polygons) != 2:
-            return (float('inf'), float('inf'))
+            return (float("inf"), float("inf"))
 
         area_scores = [abs(polygon.area - self.target_area) for polygon in polygons]
-        ratio_scores = [abs(self.get_piece_ratio(polygon) - self.target_ratio) for polygon in polygons]
+        ratio_scores = [
+            abs(self.get_piece_ratio(polygon) - self.target_ratio)
+            for polygon in polygons
+        ]
 
         area_score = min(area_scores)
         ratio_score = ratio_scores[area_scores.index(min(area_scores))]
@@ -235,44 +238,36 @@ class Player6(Player):
         return (area_score, ratio_score)
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
-        """Generate cuts to divide the cake among children using alternating x and y slices."""
-        
-        
+        """Adaptive coarse-to-fine search for near-optimal cuts with convergence criteria."""
         result: list[tuple[Point, Point]] = []
-        largest_piece = self.get_max_piece(self.cake.exterior_pieces)
 
-        
-        while(len(result) < self.children - 1):
-            score_till_now = (float('inf'), float('inf'))
-            best_slice = None
+        while len(result) < self.children - 1:
             largest_piece = self.get_max_piece(self.cake.exterior_pieces)
             min_x, min_y, max_x, max_y = largest_piece.exterior.bounds
-            
-            # Use adaptive step size: larger step for fewer children, smaller for more children
-            # This balances speed vs accuracy based on problem complexity
-            adaptive_step = max(0.001, 0.01 / self.children)
-            
-            for i in np.arange(1, self.children, adaptive_step):
-                cut_results_1 = self._try_x_slice(i, min_x, max_x, min_y, max_y, largest_piece)
-                cut_results_2 = self._try_y_slice(i, min_x, max_x, min_y, max_y, largest_piece)
-                if not cut_results_1:
-                    cut_results_1 = []
-                if not cut_results_2:
-                    cut_results_2 = []
-                cuts: list[CutResult] = [*cut_results_1, *cut_results_2] 
-                
-                for cut in cuts:
-                    if cut is not None:
+            cut_fracs = np.linspace(0.01, 1, 1000)
+            best_slice, best_score = None, (float("inf"), float("inf"))
+
+            for frac in cut_fracs:
+                for try_fn in (self._try_x_slice, self._try_y_slice):
+                    cuts = try_fn(
+                        frac * self.children, min_x, max_x, min_y, max_y, largest_piece
+                    )
+                    if not cuts:
+                        continue
+                    for cut in cuts:
+                        if cut is None:
+                            continue
                         score = self.score_cut(cut)
-                        if score < score_till_now:
-                            score_till_now = score
-                            best_slice = cut
+                        if score < best_score:
+                            best_score, best_slice = score, cut
+
+            if not best_slice:
+                continue
 
             if best_slice:
                 result.append(best_slice.points)
                 self.cake.cut(best_slice.points[0], best_slice.points[1])
-                
-        
+
         return result
 
     def _try_x_slice(
@@ -292,7 +287,7 @@ class Player6(Player):
         # Find intersection with the piece
         intersections = intersection(x_slice, piece)
         if isinstance(intersections, MultiLineString) and not intersections.is_empty:
-            return [self.virtual_cut(piece, line) for line in intersections.geoms]         
+            return [self.virtual_cut(piece, line) for line in intersections.geoms]
         if isinstance(intersections, LineString) and not intersections.is_empty:
             return [self.virtual_cut(piece, intersections)]
         else:
@@ -309,14 +304,13 @@ class Player6(Player):
     ) -> CutResult | None:
         """Attempt to make a horizontal cut at the given iteration."""
         y_span = max_y - min_y
-        y_position = iteration * y_span / self.children  + min_y
+        y_position = iteration * y_span / self.children + min_y
         y_slice = LineString([[min_x, y_position], [max_x, y_position]])
-
 
         # Find intersection with the piece
         intersections = intersection(y_slice, piece)
         if isinstance(intersections, MultiLineString) and not intersections.is_empty:
-            return [self.virtual_cut(piece, line) for line in intersections.geoms] 
+            return [self.virtual_cut(piece, line) for line in intersections.geoms]
         if isinstance(intersections, LineString) and not intersections.is_empty:
             return [self.virtual_cut(piece, intersections)]
         else:
