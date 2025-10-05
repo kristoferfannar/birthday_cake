@@ -70,7 +70,7 @@ class Player5(Player):                              # Define a new player strate
     # Assumptions: Area never decreases, always two intersections.
     # Basically has to be a convex polygon
     # If it does not work, use previous algorithm
-    def scan_cut(self) -> list[tuple[Point, Point]]:
+    def scan_cut(self) -> tuple[list[tuple[Point, Point]], bool]:
         moves: list[tuple[Point, Point]] = []
         # Define moves at the start, but do not cut continuously.
         remaining_children = self.children
@@ -109,7 +109,8 @@ class Player5(Player):                              # Define a new player strate
                 inter = cut.intersection(edge)
                 if not inter.is_empty:
                     intersections.append(inter)
-            assert(len(intersections) == 2)
+            if len(intersections) != 2:
+                return [], False
             from_p = intersections[0]
             to_p = intersections[1]
             cpy_cake = self.cake.copy()
@@ -133,12 +134,35 @@ class Player5(Player):                              # Define a new player strate
             except Exception as e:
                 pass
         #print(moves)
-        return moves
+        return moves, True
             
             
     
     def get_cuts(self) -> list[tuple[Point, Point]]:
-        moves = self.scan_cut()
+        cpy_cake = self.cake.copy()
+        moves, success = self.scan_cut()
+        if not success:
+            self.cake = cpy_cake
+            moves = self.get_cuts_old()
+
+        return moves
+        # Return list of all cuts made
+
+    def get_cuts_old(self) -> list[tuple[Point, Point]]:
+        moves: list[tuple[Point, Point]] = []
+        # Initialize list to store all cuts
+
+        for _ in range(self.children - 1):
+            # Each child (except last) needs a cut to divide cake into correct number of pieces
+
+            from_p, to_p = self.find_random_cut()
+            # Find a valid cut using method above
+
+            moves.append((from_p, to_p))
+            # Record the cut in the moves list
+
+            self.cake.cut(from_p, to_p)
+            # Apply the cut to update the internal cake state
 
         return moves
         # Return list of all cuts made
