@@ -1,4 +1,4 @@
-from shapely import LineString, Point        
+from shapely import LineString, Point, intersection
 from random import shuffle                         
 from players.player import Player, PlayerException  
 from src.cake import Cake                           
@@ -67,21 +67,77 @@ class Player5(Player):                              # Define a new player strate
         raise PlayerException("could not find valid cut")
         # If no valid cut was found after checking all combinations, raise an exception
 
-    def get_cuts(self) -> list[tuple[Point, Point]]:
+    # Assumptions: Area never decreases, always two intersections.
+    # Basically has to be a convex polygon
+    def scan_cut(self) -> list[tuple[Point, Point]]:
         moves: list[tuple[Point, Point]] = []
-        # Initialize list to store all cuts
+        # Define moves at the start, but do not cut continuously.
+        remaining_children = self.children
+        # Only one piece (the whole cake)
+        vertices = list(self.cake.get_pieces()[0].exterior.coords[:-1])
+        print(vertices)
 
-        for _ in range(self.children - 1):
-            # Each child (except last) needs a cut to divide cake into correct number of pieces
+        # Consts
+        lowest_y = min(y for _, y in vertices)
+        lowest_x = min(x for x, _ in vertices)
+        highest_y = max(y for _, y in vertices)
+        highest_x = max(x for x, _ in vertices)
+        step_size = (highest_y - lowest_y) / 200
 
-            from_p, to_p = self.find_random_cut()
-            # Find a valid cut using method above
+        # Mut
+        current_y = lowest_y
 
-            moves.append((from_p, to_p))
-            # Record the cut in the moves list
+        # Verification
+        print(lowest_x, lowest_y)
+        print(highest_x, highest_y)
+        print(step_size)
 
-            self.cake.cut(from_p, to_p)
-            # Apply the cut to update the internal cake state
+        lines = [
+            LineString([vertices[i], vertices[(i + 1) % len(vertices)]])
+            for i in range(len(vertices))
+        ]
+        tracked_area = 0.0
+        while current_y < highest_y:
+            current_y += step_size
+            from_p = Point(lowest_x, current_y)
+            to_p = Point(highest_x, current_y)
+
+            cut = LineString([from_p, to_p])
+            intersections = []
+            for edge in lines:
+                inter = cut.intersection(edge)
+                if not inter.is_empty:
+                    intersections.append(inter)
+            assert(len(intersections) == 2)
+            from_p = intersections[0]
+            to_p = intersections[1]
+            cpy_cake = self.cake.copy()
+            try:
+                cpy_cake.cut(from_p, to_p)
+                smallest_piece = min(cpy_cake.get_pieces(), key=lambda piece: piece.area)
+                area = smallest_piece.area
+                if area < tracked_area:
+                    moves.append((from_p, to_p))
+                    self.cake.cut(from_p, to_p)
+                    break
+                tracked_area = smallest_piece.area
+                if smallest_piece.area > 20.14:
+                    moves.append((from_p, to_p))
+                    #print(from_p, to_p)
+                    self.cake.cut(from_p, to_p)
+                    remaining_children -= 1
+                    tracked_area = 0
+                else:
+                    continue
+            except Exception as e:
+                pass
+        #print(moves)
+        return moves
+            
+            
+    
+    def get_cuts(self) -> list[tuple[Point, Point]]:
+        moves = self.scan_cut()
 
         return moves
         # Return list of all cuts made
