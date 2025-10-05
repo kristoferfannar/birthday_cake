@@ -105,13 +105,14 @@ class CrustOptimizingPlayer(Player):
             piece = max(self.cake.get_pieces(), key=lambda p: p.area)
             piece_boundary = piece.boundary
 
-            step_size = piece_boundary.length / num_p1
-            p1_candidates = [piece_boundary.interpolate(i * step_size) for i in range(num_p1)]
-            step_size = piece_boundary.length / num_p2
-            p2_candidates = [piece_boundary.interpolate(i * step_size) for i in range(num_p1)]
-            print("-----------")
-            for p1 in p1_candidates:
-                for p2 in p2_candidates:
+            num_candidates = 240  # You can adjust this number
+            step_size = piece_boundary.length / num_candidates
+            candidates = [piece_boundary.interpolate(i * step_size) for i in range(num_candidates)]
+
+            for i in range(num_candidates):
+                for j in range(i + 1, num_candidates):
+                    p1 = candidates[i]
+                    p2 = candidates[j]
                     #print(p1, p2)
                     good, _ = self.cake.does_line_cut_piece_well(
                         LineString((p1, p2)), piece
@@ -137,6 +138,7 @@ class CrustOptimizingPlayer(Player):
                         best_line_list.append((cake_precision, p1, p2, crust_precision))
 
             #print(best_line)
+            print(len(best_line_list))
 
             if len(best_line_list) > 0:
                 best_line_list.sort(key=lambda x: (x[3] + 0.001) * (x[0] + 0.1))
