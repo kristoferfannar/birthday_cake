@@ -136,8 +136,6 @@ class Cake:
                 )
 
     def point_lies_on_piece_boundary(self, p: Point, piece: Polygon):
-        print("cake.py p ", p)
-        print("cake.py piece", piece)
         return p.distance(piece.boundary) <= c.TOL
 
     def get_intersecting_pieces_from_point(self, p: Point):
