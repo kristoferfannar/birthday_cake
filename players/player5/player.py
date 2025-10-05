@@ -69,6 +69,7 @@ class Player5(Player):                              # Define a new player strate
 
     # Assumptions: Area never decreases, always two intersections.
     # Basically has to be a convex polygon
+    # If it does not work, use previous algorithm
     def scan_cut(self) -> list[tuple[Point, Point]]:
         moves: list[tuple[Point, Point]] = []
         # Define moves at the start, but do not cut continuously.
