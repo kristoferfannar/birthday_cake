@@ -52,15 +52,24 @@ class CrustOptimizingPlayer(Player):
         if len(split_pieces) < 2:
             return float("inf"), float("inf") # Return a tuple for invalid cuts
 
-        Area_piece = split_pieces[0].area
-        closest_target_area = min(Area_list, key=lambda a: abs(a - Area_piece))
-        cake_precision = abs(Area_piece - closest_target_area) / self.cake.exterior_shape.area
-        
-        new_piece1_crust_ratio = self.cake.get_piece_ratio(split_pieces[0])
-        new_piece2_crust_ratio = self.cake.get_piece_ratio(split_pieces[1])
-        
-        crust_precision = abs(new_piece1_crust_ratio - crust_ratio) + abs(new_piece2_crust_ratio - crust_ratio)
-        return cake_precision, crust_precision
+        if split_pieces[0].area < split_pieces[1].area:
+            Area_piece = split_pieces[0].area
+            closest_target_area = min(Area_list, key=lambda a: abs(a - Area_piece))
+            cake_precision = abs(Area_piece - closest_target_area) / self.cake.exterior_shape.area
+            
+            new_piece1_crust_ratio = self.cake.get_piece_ratio(split_pieces[0])
+            
+            crust_precision = abs(new_piece1_crust_ratio - crust_ratio)
+            return cake_precision, crust_precision
+        else:
+            Area_piece = split_pieces[1].area
+            closest_target_area = min(Area_list, key=lambda a: abs(a - Area_piece))
+            cake_precision = abs(Area_piece - closest_target_area) / self.cake.exterior_shape.area
+            
+            new_piece1_crust_ratio = self.cake.get_piece_ratio(split_pieces[1])
+            
+            crust_precision = abs(new_piece1_crust_ratio - crust_ratio)
+            return cake_precision, crust_precision
 
     def get_weight(self, p1, p2, piece, Goal_ratio):
         """Compute weight for a given cut — based on area ratio deviation."""
@@ -77,8 +86,8 @@ class CrustOptimizingPlayer(Player):
     def get_cuts(self) -> list[tuple[Point, Point]]:
         moves: list[tuple[Point, Point]] = []
 
-        num_p1 = 100 
-        num_p2 = 200
+        num_p1 = 125
+        num_p2 = 300
         
         piece = max(self.cake.get_pieces(), key=lambda p: p.area)
         crust_ratio = self.cake.get_piece_ratio(piece)
@@ -100,39 +109,49 @@ class CrustOptimizingPlayer(Player):
             p1_candidates = [piece_boundary.interpolate(i * step_size) for i in range(num_p1)]
             step_size = piece_boundary.length / num_p2
             p2_candidates = [piece_boundary.interpolate(i * step_size) for i in range(num_p1)]
+            print("-----------")
             for p1 in p1_candidates:
                 for p2 in p2_candidates:
+                    #print(p1, p2)
                     good, _ = self.cake.does_line_cut_piece_well(
                         LineString((p1, p2)), piece
                     )
                     
                     if not good:
+                        #print(_)
                         continue
 
                     valid, _ = self.cake.cut_is_valid(p1, p2)
                     if not valid:
+                        #print(p1, p2)
                         continue
-
+                    #print(p1,p2)
                     cake_precision, crust_precision = self.check_precision(p1, p2, Area_list, piece, crust_ratio)
                     if cake_precision == float("inf"):
                         continue
 
                     if best_line[0] > cake_precision:
-                        bestline = [cake_precision, p1, p2, crust_precision]
+                        best_line = [cake_precision, p1, p2, crust_precision]
                     
-                    if cake_precision < 0.05:
+                    if cake_precision < 0.001:
                         best_line_list.append((cake_precision, p1, p2, crust_precision))
 
-            if len(best_line_list) > 0:
-                best_line_list.sort(key=lambda x: (x[3] + 0.000001) * (x[0] + 0.000001))
-                best_line = best_line_list[0][1], best_line_list[0][2]
-            else:
-                print("No crust found")
-                best_line = bestline[1], bestline[2]
+            #print(best_line)
 
+            if len(best_line_list) > 0:
+                best_line_list.sort(key=lambda x: (x[3] + 0.001) * (x[0] + 0.1))
+                bestline = best_line_list[0]
+            elif best_line[1] is not None:
+                print("No optimal crust found")
+                bestline = best_line
+            else:
+                print("random strategy")
+                a, b = self.random_player.find_random_cut()
+                bestline = [100, a, b, 100]
             # --- Step 4: Execute cut ---
-            print(best_line)
-            moves.append(best_line)
-            self.cake.cut(best_line[0], best_line[1])
+            #print(bestline)
+            moves.append((bestline[1], bestline[2]))
+            self.cake.cut(bestline[1], bestline[2])
 
         return moves
+    
