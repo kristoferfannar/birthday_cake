@@ -1,5 +1,5 @@
 from shapely.geometry import LineString, Point, Polygon
-from typing import Optional
+
 from players.player import Player
 from src.cake import Cake
 from shapely.ops import split
