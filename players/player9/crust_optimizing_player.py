@@ -1,4 +1,5 @@
 from shapely import Point, LineString
+
 # import random
 from players.player import Player
 from players.random_player import RandomPlayer
