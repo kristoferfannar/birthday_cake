@@ -36,10 +36,12 @@ class Player4(Player):
                 # fallback: full vertical line
                 cuts.append((Point(x_cut, miny), Point(x_cut, maxy)))
 
-        print(f"[Player4] Returning {len(cuts)} cuts (expected {n-1})")
+        print(f"[Player4] Returning {len(cuts)} cuts (expected {n - 1})")
         return cuts
 
-    def find_cut_x(self, poly: Polygon, target_area: float, minx: float, maxx: float) -> float:
+    def find_cut_x(
+        self, poly: Polygon, target_area: float, minx: float, maxx: float
+    ) -> float:
         """Binary search for the x-coordinate where the polygon left of x has area = target_area."""
         lo, hi = minx, maxx
         tol = 1e-2
@@ -48,7 +50,7 @@ class Player4(Player):
         miny, maxy = poly.bounds[1], poly.bounds[3]
         ysafety = (maxy - miny) * 2
 
-        def area_left_of_x(x): #find area of left polygon until it reaches target
+        def area_left_of_x(x):  # find area of left polygon until it reaches target
             line = LineString([(x, miny - ysafety), (x, maxy + ysafety)])
             pieces = split(poly, line)
             if len(pieces.geoms) == 2:
@@ -73,16 +75,3 @@ class Player4(Player):
             else:
                 hi = mid
         return (lo + hi) / 2
-
-
-
-
-
-
-
-
-
-
-
-
-
