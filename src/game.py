@@ -180,7 +180,7 @@ class Game:
     def play(self):
         x_offset, y_offset = self.cake.get_offsets()
         moves = self.player.get_cuts()
-        
+
         if len(moves) != self.args.children - 1:
             msg = f"Player Exception: Invalid amount of cuts. expected {self.args.children - 1}, got {len(moves)}"
             if self.args.gui:
