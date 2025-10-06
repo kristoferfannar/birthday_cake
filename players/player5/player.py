@@ -1,13 +1,14 @@
-from shapely import LineString, Point, intersection
-from random import shuffle                         
-from players.player import Player, PlayerException  
-from src.cake import Cake                           
-import math                                         
+from shapely import LineString, Point
+from players.player import Player, PlayerException
+from src.cake import Cake
 
-class Player5(Player):                              # Define a new player strategy subclass of Player
+
+class Player5(Player):  # Define a new player strategy subclass of Player
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
-        super().__init__(children, cake, cake_path) # Initialize parent Player with given parameters
-        print(f"I am {self}")                       # Print player identity for debugging
+        super().__init__(
+            children, cake, cake_path
+        )  # Initialize parent Player with given parameters
+        print(f"I am {self}")  # Print player identity for debugging
 
     def find_random_cut(self) -> tuple[Point, Point]:
         """Find a random cut.
@@ -48,7 +49,10 @@ class Player5(Player):                              # Define a new player strate
             return from_p, to_p
         # If valid, return the cut
 
-        lines = [LineString([vertices[i], vertices[(i + 1) % len(vertices)]]) for i in range(len(vertices))]
+        lines = [
+            LineString([vertices[i], vertices[(i + 1) % len(vertices)]])
+            for i in range(len(vertices))
+        ]
         # Otherwise, build all edges again, ensuring wrap-around to close polygon
 
         for i in range(len(lines)):
@@ -116,7 +120,9 @@ class Player5(Player):                              # Define a new player strate
             cpy_cake = self.cake.copy()
             try:
                 cpy_cake.cut(from_p, to_p)
-                smallest_piece = min(cpy_cake.get_pieces(), key=lambda piece: piece.area)
+                smallest_piece = min(
+                    cpy_cake.get_pieces(), key=lambda piece: piece.area
+                )
                 area = smallest_piece.area
                 if area < tracked_area:
                     moves.append((from_p, to_p))
@@ -125,19 +131,17 @@ class Player5(Player):                              # Define a new player strate
                 tracked_area = smallest_piece.area
                 if smallest_piece.area > 20.14:
                     moves.append((from_p, to_p))
-                    #print(from_p, to_p)
+                    # print(from_p, to_p)
                     self.cake.cut(from_p, to_p)
                     remaining_children -= 1
                     tracked_area = 0
                 else:
                     continue
-            except Exception as e:
+            except Exception:
                 pass
-        #print(moves)
+        # print(moves)
         return moves, True
-            
-            
-    
+
     def get_cuts(self) -> list[tuple[Point, Point]]:
         cpy_cake = self.cake.copy()
         moves, success = self.scan_cut()
