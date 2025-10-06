@@ -2,32 +2,16 @@ from shapely import Point, Polygon
 from shapely.geometry import LineString
 from src.cake import Cake
 
-def get_perimeter_points(cake: Cake) -> list[Point]:
-    largest_piece = max(cake.exterior_pieces, key=lambda p: p.area)
-    vertices = list(largest_piece.exterior.coords)
+def get_perimeter_points(cake, num_samples: int):
+    # get the current largest polygon piece (the cake body)
+    largest_piece = max(cake.get_pieces(), key=lambda piece: piece.area)
 
-    gen_points = []
-    num_points = 50  # number of points to generate per edge
-
-    # for each edge, generate num_points points
-    for i in range(len(vertices) - 1):
-        vert1 = vertices[i]
-        vert2 = vertices[i + 1]
-
-        # generate points along this edge
-        for j in range(num_points):
-            # how far along the edge we are (0 to 1)
-            spacing = j / (num_points - 1) 
-
-            # move x and y by spacing along the edge form
-            x = vert1[0] + (vert2[0] - vert1[0]) * spacing
-            y = vert1[1] + (vert2[1] - vert1[1]) * spacing
-
-            gen_points.append(Point(x, y))
-
-    # print("Generated perimeter points:")
-    # print(all_points)
-    return gen_points
+    boundary = largest_piece.exterior
+    points = [
+        boundary.interpolate(i / num_samples, normalized=True)
+        for i in range(num_samples)
+    ]
+    return [(p.x, p.y) for p in points]
 
 def get_areas(cake: Cake, xy1: Point, xy2: Point, target_ratio: float = 0.5, original_area: float =None) -> tuple[bool, float | None]:
     # find cuts that produce pieces with target ratio
