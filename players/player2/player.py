@@ -22,9 +22,7 @@ class Player2(Player):
            remaining piece with the best approximate equal-area cut until we have n-1 cuts.
     """
 
-    def __init__(
-        self, children: int, cake: Cake, cake_path: Optional[str] = None
-    ) -> None:
+    def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         """
         Initialize Player2 with the number of children, the cake object, and optional parameters.
 
@@ -51,7 +49,7 @@ class Player2(Player):
         self.ratio_tol = 0.05
 
     # ---------- public ----------
-    def get_cuts(self) -> List[Tuple[Point, Point]]:
+    def get_cuts(self) -> list[tuple[Point, Point]]:
         """
         Generate the cuts required to divide the cake into `children` pieces.
 
@@ -70,7 +68,7 @@ class Player2(Player):
             depth=0,
         )
 
-        cuts: List[Tuple[Point, Point]] = list(planned)
+        cuts: list[tuple[Point, Point]] = list(planned)
 
         # If the plan is incomplete, use greedy filling to add remaining cuts
         while len(cuts) < self.children - 1:
