@@ -24,7 +24,7 @@ def test_all_cakes():
 
         print(f"Testing: {player_dir}/{cake_name}")
         try:
-            game = Game(
+            Game(
                 Args(
                     gui=False,
                     player=6,  # Player6
