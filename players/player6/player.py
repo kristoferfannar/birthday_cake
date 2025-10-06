@@ -262,7 +262,7 @@ class Player6(Player):
                             best_score, best_slice = score, cut
 
             if not best_slice:
-                continue
+                break
 
             if best_slice:
                 result.append(best_slice.points)
@@ -301,7 +301,7 @@ class Player6(Player):
         min_y: float,
         max_y: float,
         piece: Polygon,
-    ) -> CutResult | None:
+    ) -> list[CutResult] | None:
         """Attempt to make a horizontal cut at the given iteration."""
         y_span = max_y - min_y
         y_position = iteration * y_span / self.children + min_y
