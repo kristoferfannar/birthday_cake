@@ -8,7 +8,7 @@ from .helper_func import get_perimeter_points, find_valid_cuts
 class Player3(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
-        self.num_samples = 24  # Number of perimeter points to sample (optimized for accuracy)
+        self.num_samples = 50  # Number of perimeter points to sample (high precision)
         self.cuts = []
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
