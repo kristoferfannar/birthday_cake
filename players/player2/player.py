@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Tuple, Optional
+from typing import Optional
 from math import inf
 
 from shapely import Point, Polygon
@@ -22,9 +22,7 @@ class Player2(Player):
            remaining piece with the best approximate equal-area cut until we have n-1 cuts.
     """
 
-    def __init__(
-        self, children: int, cake: Cake, cake_path: Optional[str] = None
-    ) -> None:
+    def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         """
         Initialize Player2 with the number of children, the cake object, and optional parameters.
 
@@ -51,12 +49,12 @@ class Player2(Player):
         self.ratio_tol = 0.05
 
     # ---------- public ----------
-    def get_cuts(self) -> List[Tuple[Point, Point]]:
+    def get_cuts(self) -> list[tuple[Point, Point]]:
         """
         Generate the cuts required to divide the cake into `children` pieces.
 
         Returns:
-            List[Tuple[Point, Point]]: List of cuts as tuples of points.
+            list[tuple[Point, Point]]: list of cuts as tuples of points.
         """
         # Work on a local copy of the cake
         work = self.cake.copy()
@@ -70,7 +68,7 @@ class Player2(Player):
             depth=0,
         )
 
-        cuts: List[Tuple[Point, Point]] = list(planned)
+        cuts: list[tuple[Point, Point]] = list(planned)
 
         # If the plan is incomplete, use greedy filling to add remaining cuts
         while len(cuts) < self.children - 1:
@@ -100,7 +98,7 @@ class Player2(Player):
         pieces_needed: int,
         best_so_far: float,
         depth: int,
-    ) -> Tuple[float, List[Tuple[Point, Point]]]:
+    ) -> tuple[float, list[tuple[Point, Point]]]:
         """
         Perform recursive beam-search backtracking to find the best cuts.
 
@@ -111,7 +109,7 @@ class Player2(Player):
             depth (int): Current recursion depth.
 
         Returns:
-            Tuple[float, List[Tuple[Point, Point]]]: Best score and corresponding cuts.
+            tuple[float, list[tuple[Point, Point]]]: Best score and corresponding cuts.
         """
         piece = cake.get_pieces()[0]
         piece_area = piece.area
@@ -128,13 +126,13 @@ class Player2(Player):
         # Generate preferred and neighboring split counts
         m = pieces_needed
         preferred = [(m // 2, m - (m // 2))]
-        neighbors: List[Tuple[int, int]] = []
+        neighbors: list[tuple[int, int]] = []
         if m > 2:
             a0 = preferred[0][0]
             neighbors.append((max(1, a0 - 1), m - max(1, a0 - 1)))
             neighbors.append((min(m - 1, a0 + 1), m - min(m - 1, a0 + 1)))
 
-        splits: List[Tuple[int, int]] = []
+        splits: list[tuple[int, int]] = []
         seen = set()
         for a, b in preferred + neighbors:
             if a <= 0 or b <= 0:
@@ -147,8 +145,8 @@ class Player2(Player):
         # Generate candidate cuts based on perimeter vertices and edge midpoints
         candidate_points = self._candidate_points(piece)
 
-        cand: List[
-            Tuple[float, Tuple[Point, Point], Tuple[Polygon, Polygon], Tuple[int, int]]
+        cand: list[
+            tuple[float, tuple[Point, Point], tuple[Polygon, Polygon], tuple[int, int]]
         ] = []
         for i in range(len(candidate_points)):
             for j in range(i + 1, len(candidate_points)):
@@ -184,7 +182,7 @@ class Player2(Player):
             print(f"{'  ' * depth}[search] candidates={len(cand)} kept={len(cand)}")
 
         best_score = best_so_far
-        best_seq: List[Tuple[Point, Point]] = []
+        best_seq: list[tuple[Point, Point]] = []
 
         # Recursively evaluate each candidate
         for cut_err, (from_p, to_p), (P, Q), (a, b) in cand:
@@ -225,7 +223,7 @@ class Player2(Player):
     # ---------- greedy fill helpers ----------
     def _best_greedy_cut_for(
         self, cake: Cake, remaining_children: int
-    ) -> Optional[Tuple[Point, Point]]:
+    ) -> Optional[tuple[Point, Point]]:
         """
         Find the best greedy cut for the largest piece to match the target area.
 
@@ -234,7 +232,7 @@ class Player2(Player):
             remaining_children (int): Number of remaining children.
 
         Returns:
-            Optional[Tuple[Point, Point]]: The best cut or None if no valid cut is found.
+            Optional[tuple[Point, Point]]: The best cut or None if no valid cut is found.
         """
         # Pick the largest piece to split
         target_piece = max(cake.get_pieces(), key=lambda p: p.area)
@@ -265,13 +263,13 @@ class Player2(Player):
                     best = (pA, pB)
         return best
 
-    def _fill_with_any_valid(self, cake: Cake, cuts: List[Tuple[Point, Point]]) -> bool:
+    def _fill_with_any_valid(self, cake: Cake, cuts: list[tuple[Point, Point]]) -> bool:
         """
         Add any valid cuts to the largest piece until the required number of cuts is reached.
 
         Args:
             cake (Cake): The current cake state.
-            cuts (List[Tuple[Point, Point]]): Current list of cuts.
+            cuts (list[tuple[Point, Point]]): Current list of cuts.
 
         Returns:
             bool: True if successful, False otherwise.
@@ -314,7 +312,7 @@ class Player2(Player):
         ratio_err = (ratio - self.avg_ratio) ** 2
         return area_err + 0.1 * ratio_err
 
-    def _candidate_points(self, poly: Polygon) -> List[Point]:
+    def _candidate_points(self, poly: Polygon) -> list[Point]:
         """
         Generate candidate points for cuts (vertices and edge midpoints).
 
@@ -322,7 +320,7 @@ class Player2(Player):
             poly (Polygon): The polygon to generate points for.
 
         Returns:
-            List[Point]: List of candidate points.
+            list[Point]: list of candidate points.
         """
         verts = list(poly.exterior.coords[:-1])
         pts = [Point(v) for v in verts]
