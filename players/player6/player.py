@@ -51,10 +51,12 @@ class Player6(Player):
         return tuple(set(pieces[0].exterior.coords) & set(pieces[1].exterior.coords))
 
     def __cut_is_within_cake(self, cut: LineString, polygon: Polygon) -> bool:
+        """ Checks cut is within cake"""
         outside = cut.difference(polygon.buffer(c.TOL * 2))
         return outside.is_empty
 
     def get_intersecting_pieces_from_point(self, p: Point, polygons: list[Polygon]):
+        """ Returns list of polygons whose boundary touches the specified point """
         touched_pieces = [
             piece for piece in polygons if self.point_lies_on_piece_boundary(p, piece)
         ]
@@ -62,6 +64,7 @@ class Player6(Player):
         return touched_pieces
 
     def get_scaled_vertex_points(self):
+        """ Scales vertices for rendering cake """
         x_offset, y_offset = self.get_offsets()
         xys = self.get_boundary_points()
 
@@ -85,9 +88,11 @@ class Player6(Player):
         return ext_points, int_points
 
     def point_lies_on_piece_boundary(self, p: Point, piece: Polygon):
+        """ Checks whether a point is within tolerance of a piece's boundary"""
         return p.distance(piece.boundary) <= c.TOL
 
     def get_cuttable_piece(self, from_p: Point, to_p: Point, polygons: list[Polygon]):
+        """ Determines if a polygon can be cut with the specified line """
         a_pieces = self.get_intersecting_pieces_from_point(from_p, polygons)
         b_pieces = self.get_intersecting_pieces_from_point(to_p, polygons)
 
@@ -197,6 +202,7 @@ class Player6(Player):
         return output
 
     def current_polygon(self, cut: CutResult) -> set[Polygon]:
+        """ Returns the two polygons involved in the cut based on their shared points"""
         cut_points, polygons = cut.points, cut.polygons
         res: set[Polygon] = set()
         for polygon in polygons:
@@ -207,12 +213,14 @@ class Player6(Player):
         return res
 
     def get_piece_ratio(self, piece: Polygon):
+        """ Calculate ratio of the piece's area that overlaps with the interior cake shape """
         if piece.intersects(self.cake.interior_shape):
             inter = piece.intersection(self.cake.interior_shape)
             return inter.area / piece.area if not inter.is_empty else 0
         return 0
 
     def score_cut(self, cut: CutResult) -> tuple[float, float]:
+        """ Calculate the score of a cut with stddev from target area and cake to crust ratio"""
         if cut is None:
             return (float("inf"), float("inf"))
 
@@ -395,4 +403,5 @@ class Player6(Player):
             return None
 
     def get_max_piece(self, pieces: list[Polygon]) -> Polygon:
+        """ Return largest polygon from list"""
         return max(pieces, key=lambda piece: piece.area)
