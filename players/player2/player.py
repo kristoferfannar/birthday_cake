@@ -23,12 +23,7 @@ class Player2(Player):
     """
 
     def __init__(
-        self,
-        children: int,
-        cake: Cake,
-        cake_path: Optional[str] = None,
-        beam_width: int = 5,
-        debug: bool = False,
+        self, children: int, cake: Cake, cake_path: Optional[str] = None
     ) -> None:
         """
         Initialize Player2 with the number of children, the cake object, and optional parameters.
@@ -48,8 +43,8 @@ class Player2(Player):
         self.target_area = self.total_area / children
         self.avg_ratio = self.cake.interior_shape.area / self.total_area
 
-        self.beam_width = max(1, beam_width)
-        self.debug = debug
+        self.beam_width = 5
+        self.debug = False
 
         # Soft tolerances for area and ratio errors
         self.area_tol = getattr(c, "PIECE_SPAN_TOL", 0.5)  # cm^2 if present
@@ -93,7 +88,7 @@ class Player2(Player):
                 print(f"[Player2] Had {len(cuts)} cuts; attempting any-valid fallback.")
             if not self._fill_with_any_valid(work, cuts):
                 raise PlayerException(
-                    f"Player2: could not assemble {self.children-1} cuts (got {len(cuts)})."
+                    f"Player2: could not assemble {self.children - 1} cuts (got {len(cuts)})."
                 )
 
         return cuts
@@ -122,7 +117,9 @@ class Player2(Player):
         piece_area = piece.area
 
         if self.debug:
-            print(f"{'  '*depth}[search] depth={depth} need={pieces_needed} area={piece_area:.3f}")
+            print(
+                f"{'  ' * depth}[search] depth={depth} need={pieces_needed} area={piece_area:.3f}"
+            )
 
         # Base case: if only one piece is needed, score the leaf
         if pieces_needed == 1:
@@ -150,7 +147,9 @@ class Player2(Player):
         # Generate candidate cuts based on perimeter vertices and edge midpoints
         candidate_points = self._candidate_points(piece)
 
-        cand: List[Tuple[float, Tuple[Point, Point], Tuple[Polygon, Polygon], Tuple[int, int]]] = []
+        cand: List[
+            Tuple[float, Tuple[Point, Point], Tuple[Polygon, Polygon], Tuple[int, int]]
+        ] = []
         for i in range(len(candidate_points)):
             for j in range(i + 1, len(candidate_points)):
                 pA, pB = candidate_points[i], candidate_points[j]
@@ -170,7 +169,9 @@ class Player2(Player):
                     err = (aP - tP) ** 2 + (aQ - tQ) ** 2
                     rP = self._ratio_v_parent(cake, P)
                     rQ = self._ratio_v_parent(cake, Q)
-                    err += 0.1 * ((rP - self.avg_ratio) ** 2 + (rQ - self.avg_ratio) ** 2)
+                    err += 0.1 * (
+                        (rP - self.avg_ratio) ** 2 + (rQ - self.avg_ratio) ** 2
+                    )
                     cand.append((err, (pA, pB), (P, Q), (a, b)))
 
         if not cand:
@@ -180,7 +181,7 @@ class Player2(Player):
         cand.sort(key=lambda x: x[0])
         cand = cand[: self.beam_width]
         if self.debug:
-            print(f"{'  '*depth}[search] candidates={len(cand)} kept={len(cand)}")
+            print(f"{'  ' * depth}[search] candidates={len(cand)} kept={len(cand)}")
 
         best_score = best_so_far
         best_seq: List[Tuple[Point, Point]] = []
@@ -193,7 +194,10 @@ class Player2(Player):
             # Prune extreme imbalance
             tP = a * self.target_area
             tQ = b * self.target_area
-            if abs(P.area - tP) > 10 * self.area_tol and abs(Q.area - tQ) > 10 * self.area_tol:
+            if (
+                abs(P.area - tP) > 10 * self.area_tol
+                and abs(Q.area - tQ) > 10 * self.area_tol
+            ):
                 continue
 
             cakeP = self._wrap_subcake(cake, P)
@@ -203,19 +207,25 @@ class Player2(Player):
             if cut_err + scoreP >= best_score:
                 continue
 
-            scoreQ, seqQ = self._search(cakeQ, b, best_score - cut_err - scoreP, depth + 1)
+            scoreQ, seqQ = self._search(
+                cakeQ, b, best_score - cut_err - scoreP, depth + 1
+            )
             total = cut_err + scoreP + scoreQ
 
             if total < best_score:
                 best_score = total
                 best_seq = [(from_p, to_p)] + seqP + seqQ
                 if self.debug:
-                    print(f"{'  '*depth}[search] new best={best_score:.3f} cuts={len(best_seq)}")
+                    print(
+                        f"{'  ' * depth}[search] new best={best_score:.3f} cuts={len(best_seq)}"
+                    )
 
         return best_score, best_seq
 
     # ---------- greedy fill helpers ----------
-    def _best_greedy_cut_for(self, cake: Cake, remaining_children: int) -> Optional[Tuple[Point, Point]]:
+    def _best_greedy_cut_for(
+        self, cake: Cake, remaining_children: int
+    ) -> Optional[Tuple[Point, Point]]:
         """
         Find the best greedy cut for the largest piece to match the target area.
 
