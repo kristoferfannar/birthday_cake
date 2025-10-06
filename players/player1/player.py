@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import List, Tuple, Iterable
 
-from shapely import Point                    # endpoints the engine expects
+from shapely import Point  # endpoints the engine expects
 from shapely.geometry import Point as GeoPoint
 from shapely.geometry import Polygon as ShapelyPolygon, LinearRing as ShapelyLinearRing
 from shapely.geometry.base import BaseGeometry
@@ -29,7 +29,11 @@ def _extract_polygon(cake: Cake) -> Poly:
     # 1) Preferred: Shapely exterior on cake.exterior_shape
     ext = getattr(cake, "exterior_shape", None)
     if isinstance(ext, (ShapelyPolygon, ShapelyLinearRing, BaseGeometry)):
-        coords = list(ext.exterior.coords) if hasattr(ext, "exterior") and ext.exterior else list(ext.coords)
+        coords = (
+            list(ext.exterior.coords)
+            if hasattr(ext, "exterior") and ext.exterior
+            else list(ext.coords)
+        )
         if len(coords) >= 2 and coords[0] == coords[-1]:
             coords = coords[:-1]  # drop duplicate closing vertex
         pts = _as_points(coords)
@@ -45,7 +49,11 @@ def _extract_polygon(cake: Cake) -> Poly:
     # 3) Rare: interior shape
     intr = getattr(cake, "interior_shape", None)
     if isinstance(intr, (ShapelyPolygon, ShapelyLinearRing, BaseGeometry)):
-        coords = list(intr.exterior.coords) if hasattr(intr, "exterior") and intr.exterior else list(intr.coords)
+        coords = (
+            list(intr.exterior.coords)
+            if hasattr(intr, "exterior") and intr.exterior
+            else list(intr.coords)
+        )
         if len(coords) >= 2 and coords[0] == coords[-1]:
             coords = coords[:-1]
         pts = _as_points(coords)
@@ -81,10 +89,11 @@ def _clip_x_le(poly: Poly, t: float) -> Poly:
         return p[0] <= t + 1e-12
 
     def intersect(a: Point2D, b: Point2D) -> Point2D:
-        x1, y1 = a; x2, y2 = b
+        x1, y1 = a
+        x2, y2 = b
         dx = x2 - x1
         if abs(dx) < EPS:
-            return (t, y1)   # vertical segment at x ~= t
+            return (t, y1)  # vertical segment at x ~= t
         s = (t - x1) / dx
         return (t, y1 + s * (y2 - y1))
 
@@ -199,14 +208,14 @@ class Player1(Player):
             chords.sort(key=lambda ab: ab[1] - ab[0], reverse=True)
 
             # 1) engine validation if available
-            for (yl, yh) in chords:
+            for yl, yh in chords:
                 if _is_good_cut(self.cake, xx, yl, yh):
                     return (yl, yh)
 
             # 2) shapely containment of chord midpoint as a fallback
             ext = getattr(self.cake, "exterior_shape", None)
             if isinstance(ext, BaseGeometry):
-                for (yl, yh) in chords:
+                for yl, yh in chords:
                     mid = 0.5 * (yl + yh)
                     if ext.contains(GeoPoint(xx, mid)):
                         return (yl, yh)
@@ -217,8 +226,19 @@ class Player1(Player):
         cuts: list[tuple[Point, Point]] = []
 
         # small neighborhood to dodge tips/vertices (relative to cake width)
-        nudges = [0.0, 0.001*W, -0.001*W, 0.005*W, -0.005*W, 0.01*W, -0.01*W,
-                  0.02*W, -0.02*W, 0.05*W, -0.05*W]
+        nudges = [
+            0.0,
+            0.001 * W,
+            -0.001 * W,
+            0.005 * W,
+            -0.005 * W,
+            0.01 * W,
+            -0.01 * W,
+            0.02 * W,
+            -0.02 * W,
+            0.05 * W,
+            -0.05 * W,
+        ]
 
         for i in range(1, n):
             # ideal area target
@@ -252,7 +272,7 @@ class Player1(Player):
 
             # 3) as a final fallback, scan a coarse grid across the cake
             if chosen is None:
-                grid = [xmin + k*(W/40.0) for k in range(41)]
+                grid = [xmin + k * (W / 40.0) for k in range(41)]
                 for xx in grid:
                     res = try_x(xx)
                     if res and _is_good_cut(self.cake, xx, res[0], res[1]):
