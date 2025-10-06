@@ -17,10 +17,12 @@ class Player4(Player):
         cuts = []
         minx, miny, maxx, maxy = piece.bounds
         ysafety = (maxy - miny) * 2  # extend cut line enough
-        
-        #loops through the target area for each cut 
-        for i in range(1, n): 
-            target = total_area * i / n # each cut should make the piece to the left i/n of the total area
+
+        # loops through the target area for each cut
+        for i in range(1, n):
+            target = (
+                total_area * i / n
+            )  # each cut should make the piece to the left i/n of the total area
             x_cut = self.find_cut_x(piece, target, minx, maxx)
 
             # vertical line at x_cut, do actual cut
@@ -40,7 +42,9 @@ class Player4(Player):
         print(f"[Player4] Returning {len(cuts)} cuts (expected {n - 1})")
         return cuts
 
-    def find_cut_x(self, piece: Polygon, target_area: float, minx: float, maxx: float) -> float:
+    def find_cut_x(
+        self, piece: Polygon, target_area: float, minx: float, maxx: float
+    ) -> float:
         """Binary search for the x-coordinate where the polygon left of x has area = target_area."""
         lo, hi = minx, maxx
         e = 1e-2
@@ -73,4 +77,4 @@ class Player4(Player):
                 lo = mid
             else:
                 hi = mid
-        return (lo + hi) / 2 # default return middle cut
+        return (lo + hi) / 2  # default return middle cut
