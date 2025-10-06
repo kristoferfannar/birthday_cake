@@ -3,7 +3,6 @@ from random import shuffle
 
 from players.player import Player, PlayerException
 from src.cake import Cake
-import src.constants as c
 
 
 class RandomPlayer(Player):
