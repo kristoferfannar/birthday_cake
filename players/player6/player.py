@@ -236,6 +236,92 @@ class Player6(Player):
         if ratio_score <= 0.05:
             ratio_score = 0.0
         return (area_score, ratio_score)
+    
+    def positions_best_cut(
+            self, 
+            try_fn,
+            position: float,
+            min_x: float,
+            max_x: float,
+            min_y: float,
+            max_y: float,
+            piece: Polygon,
+    ) -> tuple[CutResult, tuple[float, float]]:
+        """ Calculates the best cut and score based on all possible cuts at a given position """
+        cuts = try_fn(position * self.children, min_x, max_x, min_y, max_y, piece)
+        best_cut = None
+        best_score = (float('inf'), float('inf'))
+        if cuts:
+            for cut in cuts:
+                if cut is not None:
+                    score = self.score_cut(cut)
+                    if score < best_score:
+                        best_score, best_cut = score, cut
+
+        # NOTE: catch later if invalid
+        return best_cut, best_score
+
+
+    def ternary_search_cut(
+            self, 
+            try_fn,
+            min_x: float,
+            max_x: float,
+            min_y: float,
+            max_y: float,
+            piece: Polygon,
+            epsilon: float = 0.01
+    ) -> tuple[CutResult, tuple[float, float]]:
+        """ Ternary search for the optimal cut positio based on the slicing function to try, returns best cut and its score"""
+        left, right = 0.01, 1.0
+
+        # start from a sample and search in this direction
+        sampling_output = []
+        samples = np.linspace(left, right, 5)
+
+        for frac in samples:
+            cut, score = self.positions_best_cut(try_fn, frac, min_x, max_x, min_y, max_y, piece)
+            if cut is not None:
+                sampling_output.append((frac, score, cut))
+
+        # NOTE: catch this later
+        if not sampling_output:
+            return None, (float('inf'), float('inf'))
+        
+        # start from best sampled point
+        sampling_output.sort(key=lambda x: x[1])
+        best_sampled_frac = sampling_output[0][0]
+        best_cut = sampling_output[0][2]
+        best_score = sampling_output[0][1]
+
+        # start the search
+        left = max(0.01, best_sampled_frac - 0.2)
+        right = min(1.0, best_sampled_frac + 0.2)
+        
+        iterations = 0
+        # NOTE: tune later
+        max_iterations = 20
+
+        while right - left > epsilon and iterations < max_iterations:
+            iterations += 1
+
+            mid1 = left + (right - left) / 3
+            mid2 = right + (right - left) / 3
+
+            cut1, score1 = self.positions_best_cut(try_fn, mid1, min_x, max_x, min_y, max_y, piece)
+            cut2, score2 = self.positions_best_cut(try_fn, mid2, min_x, max_x, min_y, max_y, piece)
+
+            if score1 < best_score:
+                best_cut, best_score = cut1, score1
+            if score2 < best_score:
+                best_cut, best_score = cut2, score2
+
+            if score1 < score2:
+                right = mid2
+            else:
+                left = mid1
+
+        return best_cut, best_score
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Adaptive coarse-to-fine search for near-optimal cuts with convergence criteria."""
