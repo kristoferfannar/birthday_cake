@@ -306,7 +306,7 @@ class Player6(Player):
             iterations += 1
 
             mid1 = left + (right - left) / 3
-            mid2 = right + (right - left) / 3
+            mid2 = right - (right - left) / 3
 
             cut1, score1 = self.positions_best_cut(try_fn, mid1, min_x, max_x, min_y, max_y, piece)
             cut2, score2 = self.positions_best_cut(try_fn, mid2, min_x, max_x, min_y, max_y, piece)
@@ -330,22 +330,14 @@ class Player6(Player):
         while len(result) < self.children - 1:
             largest_piece = self.get_max_piece(self.cake.exterior_pieces)
             min_x, min_y, max_x, max_y = largest_piece.exterior.bounds
-            cut_fracs = np.linspace(0.01, 1, 1000)
             best_slice, best_score = None, (float("inf"), float("inf"))
 
-            for frac in cut_fracs:
-                for try_fn in (self._try_x_slice, self._try_y_slice):
-                    cuts = try_fn(
-                        frac * self.children, min_x, max_x, min_y, max_y, largest_piece
-                    )
-                    if not cuts:
-                        continue
-                    for cut in cuts:
-                        if cut is None:
-                            continue
-                        score = self.score_cut(cut)
-                        if score < best_score:
-                            best_score, best_slice = score, cut
+            for try_fn in (self._try_x_slice, self._try_y_slice):
+                cut, score = self.ternary_search_cut(try_fn, min_x, max_x, min_y, max_y, largest_piece)
+
+                if score < best_score:
+                    best_score, best_slice = score, cut
+                
 
             if not best_slice:
                 break
