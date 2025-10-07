@@ -256,7 +256,7 @@ class Player6(Player):
             piece: Polygon,
     ) -> tuple[CutResult, tuple[float, float]]:
         """ Calculates the best cut and score based on all possible cuts at a given position """
-        cuts = try_fn(position * self.children, min_x, max_x, min_y, max_y, piece)
+        cuts = try_fn(position, min_x, max_x, min_y, max_y, piece)
         best_cut = None
         best_score = (float('inf'), float('inf'))
         if cuts:
@@ -281,31 +281,8 @@ class Player6(Player):
             epsilon: float = 0.01
     ) -> tuple[CutResult, tuple[float, float]]:
         """ Ternary search for the optimal cut positio based on the slicing function to try, returns best cut and its score"""
-        left, right = 0.01, 1.0
-
-        # start from a sample and search in this direction
-        sampling_output = []
-        samples = np.linspace(left, right, 1000)
-
-        for frac in samples:
-            cut, score = self.positions_best_cut(try_fn, frac, min_x, max_x, min_y, max_y, piece)
-            if cut is not None:
-                sampling_output.append((frac, score, cut))
-
-        # NOTE: catch this later
-        if not sampling_output:
-            return None, (float('inf'), float('inf'))
-        
-        # start from best sampled point
-        sampling_output.sort(key=lambda x: x[1])
-        best_sampled_frac = sampling_output[0][0]
-        best_cut = sampling_output[0][2]
-        best_score = sampling_output[0][1]
-
-        # start the search
-        left = max(0.01, best_sampled_frac - 0.2)
-        right = min(1.0, best_sampled_frac + 0.2)
-        
+        left, right = 0.01, 0.99
+        best_cut, best_score = None, (float('inf'), float('inf'))
         iterations = 0
         # NOTE: tune later
         max_iterations = 20
@@ -358,7 +335,7 @@ class Player6(Player):
 
     def _try_x_slice(
         self,
-        iteration: int,
+        position: int,
         min_x: float,
         max_x: float,
         min_y: float,
@@ -367,7 +344,8 @@ class Player6(Player):
     ) -> list[CutResult] | None:
         """Attempt to make a vertical cut at the given iteration."""
         x_span = max_x - min_x
-        x_position = iteration * x_span / self.children + min_x
+        #x_position = iteration * x_span / self.children + min_x
+        x_position = min_x + position * x_span
         x_slice = LineString([[x_position, min_y], [x_position, max_y]])
 
         # Find intersection with the piece
@@ -381,7 +359,7 @@ class Player6(Player):
 
     def _try_y_slice(
         self,
-        iteration: int,
+        position: int,
         min_x: float,
         max_x: float,
         min_y: float,
@@ -390,7 +368,8 @@ class Player6(Player):
     ) -> list[CutResult] | None:
         """Attempt to make a horizontal cut at the given iteration."""
         y_span = max_y - min_y
-        y_position = iteration * y_span / self.children + min_y
+        #y_position = iteration * y_span / self.children + min_y
+        y_position = min_y * position * y_span
         y_slice = LineString([[min_x, y_position], [max_x, y_position]])
 
         # Find intersection with the piece
