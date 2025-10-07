@@ -51,10 +51,12 @@ class Player6(Player):
         return tuple(set(pieces[0].exterior.coords) & set(pieces[1].exterior.coords))
 
     def __cut_is_within_cake(self, cut: LineString, polygon: Polygon) -> bool:
+        """ Checks cut is within cake"""
         outside = cut.difference(polygon.buffer(c.TOL * 2))
         return outside.is_empty
 
     def get_intersecting_pieces_from_point(self, p: Point, polygons: list[Polygon]):
+        """ Returns list of polygons whose boundary touches the specified point """
         touched_pieces = [
             piece for piece in polygons if self.point_lies_on_piece_boundary(p, piece)
         ]
@@ -62,6 +64,7 @@ class Player6(Player):
         return touched_pieces
 
     def get_scaled_vertex_points(self):
+        """ Scales vertices for rendering cake """
         x_offset, y_offset = self.get_offsets()
         xys = self.get_boundary_points()
 
@@ -85,9 +88,11 @@ class Player6(Player):
         return ext_points, int_points
 
     def point_lies_on_piece_boundary(self, p: Point, piece: Polygon):
+        """ Checks whether a point is within tolerance of a piece's boundary"""
         return p.distance(piece.boundary) <= c.TOL
 
     def get_cuttable_piece(self, from_p: Point, to_p: Point, polygons: list[Polygon]):
+        """ Determines if a polygon can be cut with the specified line """
         a_pieces = self.get_intersecting_pieces_from_point(from_p, polygons)
         b_pieces = self.get_intersecting_pieces_from_point(to_p, polygons)
 
@@ -197,6 +202,7 @@ class Player6(Player):
         return output
 
     def current_polygon(self, cut: CutResult) -> set[Polygon]:
+        """ Returns the two polygons involved in the cut based on their shared points"""
         cut_points, polygons = cut.points, cut.polygons
         res: set[Polygon] = set()
         for polygon in polygons:
@@ -207,12 +213,14 @@ class Player6(Player):
         return res
 
     def get_piece_ratio(self, piece: Polygon):
+        """ Calculate ratio of the piece's area that overlaps with the interior cake shape """
         if piece.intersects(self.cake.interior_shape):
             inter = piece.intersection(self.cake.interior_shape)
             return inter.area / piece.area if not inter.is_empty else 0
         return 0
 
     def score_cut(self, cut: CutResult) -> tuple[float, float]:
+        """ Calculate the score of a cut with stddev from target area and cake to crust ratio"""
         if cut is None:
             return (float("inf"), float("inf"))
 
@@ -235,7 +243,71 @@ class Player6(Player):
             area_score = 0.0
         if ratio_score <= 0.05:
             ratio_score = 0.0
+
         return (area_score, ratio_score)
+    
+    def positions_best_cut(
+            self, 
+            try_fn,
+            position: float,
+            min_x: float,
+            max_x: float,
+            min_y: float,
+            max_y: float,
+            piece: Polygon,
+    ) -> tuple[CutResult, tuple[float, float]]:
+        """ Calculates the best cut and score based on all possible cuts at a given position """
+        cuts = try_fn(position, min_x, max_x, min_y, max_y, piece)
+        best_cut = None
+        best_score = (float('inf'), float('inf'))
+        if cuts:
+            for cut in cuts:
+                if cut is not None:
+                    score = self.score_cut(cut)
+                    # NOTE: these are tuples we need to check both else area dominates
+                    if score[0] < best_score[0] and score[1] < best_score[1]:
+                        best_score, best_cut = score, cut
+
+        # NOTE: catch later if invalid
+        return best_cut, best_score
+
+    def ternary_search_cut(
+            self, 
+            try_fn,
+            min_x: float,
+            max_x: float,
+            min_y: float,
+            max_y: float,
+            piece: Polygon,
+            epsilon: float = 0.01
+    ) -> tuple[CutResult, tuple[float, float]]:
+        """ Ternary search for the optimal cut positio based on the slicing function to try, returns best cut and its score"""
+        left, right = 0.01, 0.99
+        best_cut, best_score = None, (float('inf'), float('inf'))
+        iterations = 0
+        # NOTE: tune later
+        max_iterations = 20
+
+        while right - left > epsilon and iterations < max_iterations:
+            iterations += 1
+
+            mid1 = left + (right - left) / 3
+            mid2 = right - (right - left) / 3
+
+            cut1, score1 = self.positions_best_cut(try_fn, mid1, min_x, max_x, min_y, max_y, piece)
+            cut2, score2 = self.positions_best_cut(try_fn, mid2, min_x, max_x, min_y, max_y, piece)
+
+            if score1[0] < best_score[0]:
+                best_cut, best_score = cut1, score1
+            if score2[0] < best_score[0]:
+                best_cut, best_score = cut2, score2
+
+            if score1[0] < score2[0]:
+                right = mid2
+            else:
+                left = mid1
+
+        return best_cut, best_score
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Adaptive coarse-to-fine search for near-optimal cuts with convergence criteria."""
@@ -244,22 +316,14 @@ class Player6(Player):
         while len(result) < self.children - 1:
             largest_piece = self.get_max_piece(self.cake.exterior_pieces)
             min_x, min_y, max_x, max_y = largest_piece.exterior.bounds
-            cut_fracs = np.linspace(0.01, 1, 1000)
             best_slice, best_score = None, (float("inf"), float("inf"))
 
-            for frac in cut_fracs:
-                for try_fn in (self._try_x_slice, self._try_y_slice):
-                    cuts = try_fn(
-                        frac * self.children, min_x, max_x, min_y, max_y, largest_piece
-                    )
-                    if not cuts:
-                        continue
-                    for cut in cuts:
-                        if cut is None:
-                            continue
-                        score = self.score_cut(cut)
-                        if score < best_score:
-                            best_score, best_slice = score, cut
+            for try_fn in (self._try_x_slice, self._try_y_slice):
+                cut, score = self.ternary_search_cut(try_fn, min_x, max_x, min_y, max_y, largest_piece)
+
+                if score[0] < best_score[0]:
+                    best_score, best_slice = score, cut
+                
 
             if not best_slice:
                 break
@@ -272,7 +336,7 @@ class Player6(Player):
 
     def _try_x_slice(
         self,
-        iteration: int,
+        position: int,
         min_x: float,
         max_x: float,
         min_y: float,
@@ -281,7 +345,8 @@ class Player6(Player):
     ) -> list[CutResult] | None:
         """Attempt to make a vertical cut at the given iteration."""
         x_span = max_x - min_x
-        x_position = iteration * x_span / self.children + min_x
+        #x_position = iteration * x_span / self.children + min_x
+        x_position = min_x + position * x_span
         x_slice = LineString([[x_position, min_y], [x_position, max_y]])
 
         # Find intersection with the piece
@@ -295,7 +360,7 @@ class Player6(Player):
 
     def _try_y_slice(
         self,
-        iteration: int,
+        position: int,
         min_x: float,
         max_x: float,
         min_y: float,
@@ -304,7 +369,8 @@ class Player6(Player):
     ) -> list[CutResult] | None:
         """Attempt to make a horizontal cut at the given iteration."""
         y_span = max_y - min_y
-        y_position = iteration * y_span / self.children + min_y
+        #y_position = iteration * y_span / self.children + min_y
+        y_position = min_y + position * y_span
         y_slice = LineString([[min_x, y_position], [max_x, y_position]])
 
         # Find intersection with the piece
@@ -317,4 +383,5 @@ class Player6(Player):
             return None
 
     def get_max_piece(self, pieces: list[Polygon]) -> Polygon:
+        """ Return largest polygon from list"""
         return max(pieces, key=lambda piece: piece.area)
