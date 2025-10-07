@@ -7,107 +7,158 @@ from src.cake import Cake
 class Player7(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
+
         self.target_area = cake.get_area() / children
 
+        total_crust_area = cake.get_area() - cake.interior_shape.area
+        self.target_crust_ratio = total_crust_area / cake.get_area()
+
+        self.moves: list[tuple[Point, Point]] = []
+        
+        # Configurable parameters
+        self.top_k_cuts = 3  # Number of top cuts to optimize
+        self.optimization_iterations = 100  # Number of optimization iterations
+        self.max_area_deviation = 0.25  # Maximum area deviation tolerance
+        self.sample_step = 0.5  # Step size for sample points
+        
     def evaluate_cut(self, from_p: Point, to_p: Point) -> float:
-        """Evaluate how good a cut is by measuring deviation from even multiples of target area.
-        Returns the sum of squared differences from the nearest even multiple of target area."""
+        """Evaluate how good a cut is by measuring deviation from the target crust ratio.
+        Only considers valid cuts where the resulting pieces are within tolerance of the target area.
+        Returns the sum of squared differences from the target crust ratio."""
 
         # Check if cut is valid first
         is_valid, _ = self.cake.cut_is_valid(from_p, to_p)
         if not is_valid:
-            return float("inf")  # Invalid cuts get worst possible score
+            return float("inf")
 
         try:
             # Make a copy of the cake to evaluate the cut
             cake_copy = self.cake.copy()
             cake_copy.cut(from_p, to_p)
 
-            # Get the piece sizes after the cut
-            piece_sizes = cake_copy.get_piece_sizes()
+            # First, enforce area tolerance for all resulting pieces.
+            for piece in cake_copy.exterior_pieces:
+                piece_size = piece.area
+                area_multiple = round(piece_size / self.target_area)
+                nearest_area_multiple = area_multiple * self.target_area
+                area_deviation = abs(piece_size - nearest_area_multiple)
+                if area_deviation > self.max_area_deviation:
+                    return float("inf")
 
-            # Calculate total deviation from even multiples of target area
-            total_deviation = 0.0
-            for piece_size in piece_sizes:
-                # Find the nearest even multiple of target area
-                multiple = round(piece_size / self.target_area)
-                nearest_even_multiple = multiple * self.target_area
-                deviation = abs(piece_size - nearest_even_multiple)
-                total_deviation += deviation * deviation  # Sum of squared deviations
+            # If all pieces are within tolerance, score using crust ratio deviation
+            ratio_deviation_total = 0.0
+            for piece in cake_copy.exterior_pieces:
+                interior_ratio = cake_copy.get_piece_ratio(piece)
+                piece_crust_ratio = 1 - interior_ratio
+                crust_ratio_deviation = piece_crust_ratio - self.target_crust_ratio
+                ratio_deviation_total += crust_ratio_deviation ** 2
 
-            return total_deviation
+            return ratio_deviation_total
 
         except Exception:
             return float("inf")
 
-    def get_sample_points(self, piece) -> list[Point]:
-        """Get sample points along the piece boundary including vertices, midpoints, and quarter points."""
+    def get_sample_points(self, piece, step: float = None) -> list[Point]:
+        """Get sample points along the piece boundary.
+        For each edge: include the two vertices, the midpoint, and then every `step` cm along the edge.
+        Also includes points from previous cuts that lie on this piece's boundary.
+        """
+        if step is None:
+            step = self.sample_step
+            
         coords = list(piece.exterior.coords[:-1])  # Exclude the duplicate last point
-        sample_points = []
+        raw_points: list[tuple[float, float]] = []
+        
+        # Add existing cut endpoints that lie on this piece's boundary
+        for move in self.moves:
+            for point in move:
+                if self.cake.point_lies_on_piece_boundary(point, piece):
+                    raw_points.append((point.x, point.y))
 
         for i in range(len(coords)):
-            # Add vertex
-            sample_points.append(Point(coords[i]))
-
-            # Add midpoint and quarter points of the edge to next vertex
             next_i = (i + 1) % len(coords)
-            start = coords[i]
-            end = coords[next_i]
+            x1, y1 = coords[i]
+            x2, y2 = coords[next_i]
 
-            # Quarter point (1/4 along the edge)
-            quarter_x = start[0] + 0.25 * (end[0] - start[0])
-            quarter_y = start[1] + 0.25 * (end[1] - start[1])
-            sample_points.append(Point(quarter_x, quarter_y))
+            # Add the starting vertex of the edge
+            raw_points.append((x1, y1))
 
-            # Midpoint (1/2 along the edge)
-            mid_x = start[0] + 0.5 * (end[0] - start[0])
-            mid_y = start[1] + 0.5 * (end[1] - start[1])
-            sample_points.append(Point(mid_x, mid_y))
+            dx = x2 - x1
+            dy = y2 - y1
+            length = (dx * dx + dy * dy) ** 0.5
 
-            # Three-quarter point (3/4 along the edge)
-            three_quarter_x = start[0] + 0.75 * (end[0] - start[0])
-            three_quarter_y = start[1] + 0.75 * (end[1] - start[1])
-            sample_points.append(Point(three_quarter_x, three_quarter_y))
+            # Add midpoint
+            mx = x1 + 0.5 * dx
+            my = y1 + 0.5 * dy
+            raw_points.append((mx, my))
+
+            # Add points every `step` cm along the edge, excluding endpoints
+            if step > 0 and length > 0:
+                k = 1
+                while k * step < length:
+                    t = (k * step) / length
+                    px = x1 + t * dx
+                    py = y1 + t * dy
+                    raw_points.append((px, py))
+                    k += 1
+
+        # Deduplicate points that may coincide (e.g., when midpoint aligns with a step)
+        seen = set()
+        sample_points: list[Point] = []
+        for x, y in raw_points:
+            key = (round(x, 6), round(y, 6))
+            if key in seen:
+                continue
+            seen.add(key)
+            sample_points.append(Point(x, y))
 
         return sample_points
 
     def find_best_cut(self) -> tuple[Point, Point]:
-        """Find the cut that minimizes deviation from target area."""
-        best_cut = None
-        best_score = float("inf")
-
-        # Get all pieces that could potentially be cut
+        """Find the cut that minimizes deviation from target crust area by optimizing top 3 cuts."""
         pieces = self.cake.get_pieces()
+        if not pieces:
+            raise PlayerException("no pieces available to cut")
+        
+        piece = max(pieces, key=lambda p: p.area)
 
-        for piece in pieces:
-            # Only consider pieces that are larger than twice the minimum area
-            # to ensure we can make a valid cut
-            # Skip pieces that are too small to cut or already close to target area
-            target_area = self.cake.get_area() / self.children
-            if (
-                abs(piece.area - target_area) < 0.5
-            ):  # Skip pieces already close to target
-                continue
+        # Get sample points along the piece boundary
+        sample_points = self.get_sample_points(piece)
+        print(f"Found {len(sample_points)} sample points")
+        
 
-            # Get sample points along the piece boundary
-            sample_points = self.get_sample_points(piece)
+        # Collect all valid cuts with their scores
+        candidate_cuts = []
+        for i in range(len(sample_points)):
+            for j in range(i + 1, len(sample_points)):
+                from_p = sample_points[i]
+                to_p = sample_points[j]
 
-            # Try cuts between different sample points
-            for i in range(len(sample_points)):
-                for j in range(i + 1, len(sample_points)):
-                    from_p = sample_points[i]
-                    to_p = sample_points[j]
+                score = self.evaluate_cut(from_p, to_p)
+                if score != float("inf"):  # Only consider valid cuts
+                    candidate_cuts.append((score, from_p, to_p))
 
-                    score = self.evaluate_cut(from_p, to_p)
-
-                    if score < best_score:
-                        best_score = score
-                        best_cut = (from_p, to_p)
-
-        if best_cut is None:
+        if not candidate_cuts:
             raise PlayerException("could not find a valid cut")
 
-        return best_cut
+        # Sort by score and take top k
+        print(f"Found {len(candidate_cuts)} candidate cuts")
+        candidate_cuts.sort(key=lambda x: x[0])
+        top_cuts = candidate_cuts[:self.top_k_cuts]
+
+        # Optimize each of the top cuts
+        best_optimized_score = float("inf")
+        best_optimized_cut = None
+        
+        for original_score, from_p, to_p in top_cuts:
+            optimized_from_p, optimized_to_p = self.optimize_cut(from_p, to_p, iterations=self.optimization_iterations)
+            optimized_score = self.evaluate_cut(optimized_from_p, optimized_to_p)
+            
+            if optimized_score < best_optimized_score:
+                best_optimized_score = optimized_score
+                best_optimized_cut = (optimized_from_p, optimized_to_p)
+
+        return best_optimized_cut
 
     def get_boundary_direction(self, piece, point: Point) -> tuple[float, float]:
         """Get the direction vector along the piece boundary at the given point."""
@@ -136,7 +187,7 @@ class Player7(Player):
             return 0.0, 0.0
 
     def optimize_cut(
-        self, from_p: Point, to_p: Point, iterations: int = 50
+        self, from_p: Point, to_p: Point, iterations: int = 20
     ) -> tuple[Point, Point]:
         """Optimize a cut by moving points along the boundary direction."""
         best_cut = (from_p, to_p)
@@ -144,6 +195,10 @@ class Player7(Player):
 
         # If the initial cut is invalid, return it as-is
         if best_score == float("inf"):
+            return best_cut
+
+        # If the initial score is 0 (perfect), skip optimization
+        if best_score == 0:
             return best_cut
 
         # Find the piece that this cut would affect
@@ -210,19 +265,15 @@ class Player7(Player):
         return best_cut
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
-        moves: list[tuple[Point, Point]] = []
+        self.moves.clear()  # Reset moves list
 
-        for _ in range(self.children - 1):
-            from_p, to_p = self.find_best_cut()
-
-            # Optimize the cut with 20 iterations of improvement
-            optimized_from_p, optimized_to_p = self.optimize_cut(
-                from_p, to_p, iterations=20
-            )
-
-            moves.append((optimized_from_p, optimized_to_p))
+        for cut in range(self.children - 1):
+            print(f"Finding cut number {cut + 1}")
+            optimized_from_p, optimized_to_p = self.find_best_cut()
+            
+            self.moves.append((optimized_from_p, optimized_to_p))
 
             # Simulate the cut on our cake to maintain accurate state
             self.cake.cut(optimized_from_p, optimized_to_p)
 
-        return moves
+        return self.moves
