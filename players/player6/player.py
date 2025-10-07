@@ -285,7 +285,7 @@ class Player6(Player):
 
         # start from a sample and search in this direction
         sampling_output = []
-        samples = np.linspace(left, right, 5)
+        samples = np.linspace(left, right, 1000)
 
         for frac in samples:
             cut, score = self.positions_best_cut(try_fn, frac, min_x, max_x, min_y, max_y, piece)
