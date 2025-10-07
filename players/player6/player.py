@@ -369,7 +369,7 @@ class Player6(Player):
         """Attempt to make a horizontal cut at the given iteration."""
         y_span = max_y - min_y
         #y_position = iteration * y_span / self.children + min_y
-        y_position = min_y * position * y_span
+        y_position = min_y + position * y_span
         y_slice = LineString([[min_x, y_position], [max_x, y_position]])
 
         # Find intersection with the piece
