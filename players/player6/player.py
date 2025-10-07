@@ -243,6 +243,7 @@ class Player6(Player):
             area_score = 0.0
         if ratio_score <= 0.05:
             ratio_score = 0.0
+
         return (area_score, ratio_score)
     
     def positions_best_cut(
@@ -263,12 +264,12 @@ class Player6(Player):
             for cut in cuts:
                 if cut is not None:
                     score = self.score_cut(cut)
-                    if score < best_score:
+                    # NOTE: these are tuples we need to check both else area dominates
+                    if score[0] < best_score[0] and score[1] < best_score[1]:
                         best_score, best_cut = score, cut
 
         # NOTE: catch later if invalid
         return best_cut, best_score
-
 
     def ternary_search_cut(
             self, 
@@ -296,12 +297,12 @@ class Player6(Player):
             cut1, score1 = self.positions_best_cut(try_fn, mid1, min_x, max_x, min_y, max_y, piece)
             cut2, score2 = self.positions_best_cut(try_fn, mid2, min_x, max_x, min_y, max_y, piece)
 
-            if score1 < best_score:
+            if score1[0] < best_score[0]:
                 best_cut, best_score = cut1, score1
-            if score2 < best_score:
+            if score2[0] < best_score[0]:
                 best_cut, best_score = cut2, score2
 
-            if score1 < score2:
+            if score1[0] < score2[0]:
                 right = mid2
             else:
                 left = mid1
@@ -320,7 +321,7 @@ class Player6(Player):
             for try_fn in (self._try_x_slice, self._try_y_slice):
                 cut, score = self.ternary_search_cut(try_fn, min_x, max_x, min_y, max_y, largest_piece)
 
-                if score < best_score:
+                if score[0] < best_score[0]:
                     best_score, best_slice = score, cut
                 
 
