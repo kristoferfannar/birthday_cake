@@ -4,8 +4,10 @@ from src.cake import Cake
 from shapely.geometry import Polygon, LineString, Point
 from shapely import MultiLineString, intersection
 from shapely.ops import split
-from typing import cast
-from math import hypot
+from typing import cast, List, Tuple, Optional
+from math import hypot, pi, cos, tan, isclose
+import numpy as np
+from joblib import Parallel, delayed
 
 import src.constants as c
 
@@ -312,21 +314,89 @@ class Player6(Player):
 
         return best_cut, best_score
 
+    def intersect_cut_line(self, piece: Polygon, line: LineString) -> Optional[List['CutResult']]:
+        """
+        Intersect the line with the polygon and return virtual cuts.
+        Returns None if no intersection.
+        """
+        intersections = intersection(line, piece)
+        if intersections.is_empty:
+            return None
+
+        if isinstance(intersections, MultiLineString):
+            return [self.virtual_cut(piece, seg) for seg in intersections.geoms]
+        
+        if isinstance(intersections, LineString):
+            return [self.virtual_cut(piece, intersections)]
+
+        return None
+
+    def generate_cut_line(self, piece: Polygon, angle: float, frac: float) -> LineString:
+        """
+        Generate a LineString for a given angle (fraction of pi) and sweep fraction.
+        Handles vertical and horizontal lines robustly.
+        """
+        min_x, min_y, max_x, max_y = piece.bounds
+        theta = angle * pi
+
+        # When cos(theta) is very small → vertical line
+        if isclose(abs(cos(theta)), 0, abs_tol=1e-6):
+            # Use x = constant line
+            x_const = min_x + frac * (max_x - min_x)
+            return LineString([(x_const, min_y), (x_const, max_y)])
+        else:
+            # Regular slope-intercept form
+            slope = tan(theta)
+            intercept = min_y + frac * (max_y - min_y)
+            x1, x2 = min_x, max_x
+            y1, y2 = slope * x1 + intercept, slope * x2 + intercept
+            return LineString([(x1, y1), (x2, y2)])
+
+    def _try_angle_slice(
+        self,
+        position: float,
+        min_x: float,
+        max_x: float,
+        min_y: float,
+        max_y: float,
+        piece: Polygon,
+        angle: float = 0.0,
+    ) -> list[CutResult] | None:
+        """Attempt to make a cut at the given angle and position."""
+        line = self.generate_cut_line(piece, angle, position)
+        return self.intersect_cut_line(piece, line)
+
+    def _evaluate_angle(self, angle: float, largest_piece: Polygon, min_x: float, max_x: float, min_y: float, max_y: float) -> tuple[CutResult, tuple[float, float]]:
+        """Evaluate a single angle using ternary search - helper for parallel processing"""
+        cut, score = self.ternary_search_cut(
+            lambda pos, min_x, max_x, min_y, max_y, piece: self._try_angle_slice(
+                pos, min_x, max_x, min_y, max_y, piece, angle
+            ),
+            min_x, max_x, min_y, max_y, largest_piece
+        )
+        return cut, score
+
     def get_cuts(self) -> list[tuple[Point, Point]]:
-        """Adaptive coarse-to-fine search for near-optimal cuts with convergence criteria."""
+        """Adaptive coarse-to-fine search for near-optimal cuts with multiple angles using parallel processing."""
         result: list[tuple[Point, Point]] = []
 
         while len(result) < self.children - 1:
             largest_piece = self.get_max_piece(self.cake.exterior_pieces)
             min_x, min_y, max_x, max_y = largest_piece.exterior.bounds
+            
+            # Try multiple angles: horizontal (0), vertical (0.5), and some diagonal angles
+            angles_to_try = np.linspace(-1, 1, 360)
+            
+            # Use parallel processing to evaluate all angles
+            results = Parallel(n_jobs=-1)(
+                delayed(self._evaluate_angle)(angle, largest_piece, min_x, max_x, min_y, max_y)
+                for angle in angles_to_try
+            )
+            
+            # Find the best result from all parallel evaluations
             best_slice, best_score = None, (float("inf"), float("inf"))
-
-            for try_fn in (self._try_x_slice, self._try_y_slice):
-                cut, score = self.ternary_search_cut(
-                    try_fn, min_x, max_x, min_y, max_y, largest_piece
-                )
-
-                if score[0] < best_score[0]:
+            for cut, score in results:
+                if cut is not None and score[0] < best_score[0]:
                     best_score, best_slice = score, cut
 
             if not best_slice:
@@ -337,54 +407,6 @@ class Player6(Player):
                 self.cake.cut(best_slice.points[0], best_slice.points[1])
 
         return result
-
-    def _try_x_slice(
-        self,
-        position: int,
-        min_x: float,
-        max_x: float,
-        min_y: float,
-        max_y: float,
-        piece: Polygon,
-    ) -> list[CutResult] | None:
-        """Attempt to make a vertical cut at the given iteration."""
-        x_span = max_x - min_x
-        # x_position = iteration * x_span / self.children + min_x
-        x_position = min_x + position * x_span
-        x_slice = LineString([[x_position, min_y], [x_position, max_y]])
-
-        # Find intersection with the piece
-        intersections = intersection(x_slice, piece)
-        if isinstance(intersections, MultiLineString) and not intersections.is_empty:
-            return [self.virtual_cut(piece, line) for line in intersections.geoms]
-        if isinstance(intersections, LineString) and not intersections.is_empty:
-            return [self.virtual_cut(piece, intersections)]
-        else:
-            return None
-
-    def _try_y_slice(
-        self,
-        position: int,
-        min_x: float,
-        max_x: float,
-        min_y: float,
-        max_y: float,
-        piece: Polygon,
-    ) -> list[CutResult] | None:
-        """Attempt to make a horizontal cut at the given iteration."""
-        y_span = max_y - min_y
-        # y_position = iteration * y_span / self.children + min_y
-        y_position = min_y + position * y_span
-        y_slice = LineString([[min_x, y_position], [max_x, y_position]])
-
-        # Find intersection with the piece
-        intersections = intersection(y_slice, piece)
-        if isinstance(intersections, MultiLineString) and not intersections.is_empty:
-            return [self.virtual_cut(piece, line) for line in intersections.geoms]
-        if isinstance(intersections, LineString) and not intersections.is_empty:
-            return [self.virtual_cut(piece, intersections)]
-        else:
-            return None
 
     def get_max_piece(self, pieces: list[Polygon]) -> Polygon:
         """Return largest polygon from list"""
