@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from typing import List, Tuple, Iterable, Optional
 
@@ -662,17 +661,13 @@ class Player1(Player):
             return cuts_fallback
         else:
             return cuts_primary
-          
-from __future__ import annotations
-from typing import List, Tuple, Iterable
 
-from shapely import Point  # endpoints the engine expects
-from shapely.geometry import Point as GeoPoint
-from shapely.geometry import Polygon as ShapelyPolygon, LinearRing as ShapelyLinearRing
-from shapely.geometry.base import BaseGeometry
+
+from __future__ import annotations
+from typing import List, Tuple
+
 
 from players.player import Player
-from src.cake import Cake
 
 # ----------------- Types & eps -----------------
 Point2D = Tuple[float, float]
