@@ -314,7 +314,9 @@ class Player6(Player):
 
         return best_cut, best_score
 
-    def intersect_cut_line(self, piece: Polygon, line: LineString) -> Optional[List['CutResult']]:
+    def intersect_cut_line(
+        self, piece: Polygon, line: LineString
+    ) -> Optional[List["CutResult"]]:
         """
         Intersect the line with the polygon and return virtual cuts.
         Returns None if no intersection.
@@ -325,13 +327,15 @@ class Player6(Player):
 
         if isinstance(intersections, MultiLineString):
             return [self.virtual_cut(piece, seg) for seg in intersections.geoms]
-        
+
         if isinstance(intersections, LineString):
             return [self.virtual_cut(piece, intersections)]
 
         return None
 
-    def generate_cut_line(self, piece: Polygon, angle: float, frac: float) -> LineString:
+    def generate_cut_line(
+        self, piece: Polygon, angle: float, frac: float
+    ) -> LineString:
         """
         Generate a LineString for a given angle (fraction of pi) and sweep fraction.
         Handles vertical and horizontal lines robustly.
@@ -366,13 +370,25 @@ class Player6(Player):
         line = self.generate_cut_line(piece, angle, position)
         return self.intersect_cut_line(piece, line)
 
-    def _evaluate_angle(self, angle: float, largest_piece: Polygon, min_x: float, max_x: float, min_y: float, max_y: float) -> tuple[CutResult, tuple[float, float]]:
+    def _evaluate_angle(
+        self,
+        angle: float,
+        largest_piece: Polygon,
+        min_x: float,
+        max_x: float,
+        min_y: float,
+        max_y: float,
+    ) -> tuple[CutResult, tuple[float, float]]:
         """Evaluate a single angle using ternary search - helper for parallel processing"""
         cut, score = self.ternary_search_cut(
             lambda pos, min_x, max_x, min_y, max_y, piece: self._try_angle_slice(
                 pos, min_x, max_x, min_y, max_y, piece, angle
             ),
-            min_x, max_x, min_y, max_y, largest_piece
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+            largest_piece,
         )
         return cut, score
 
@@ -383,16 +399,18 @@ class Player6(Player):
         while len(result) < self.children - 1:
             largest_piece = self.get_max_piece(self.cake.exterior_pieces)
             min_x, min_y, max_x, max_y = largest_piece.exterior.bounds
-            
+
             # Try multiple angles: horizontal (0), vertical (0.5), and some diagonal angles
             angles_to_try = np.linspace(-1, 1, 360)
-            
+
             # Use parallel processing to evaluate all angles
             results = Parallel(n_jobs=-1)(
-                delayed(self._evaluate_angle)(angle, largest_piece, min_x, max_x, min_y, max_y)
+                delayed(self._evaluate_angle)(
+                    angle, largest_piece, min_x, max_x, min_y, max_y
+                )
                 for angle in angles_to_try
             )
-            
+
             # Find the best result from all parallel evaluations
             best_slice, best_score = None, (float("inf"), float("inf"))
             for cut, score in results:
