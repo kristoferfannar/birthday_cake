@@ -1,9 +1,10 @@
-from shapely import Point
+from shapely import Point, wkb
 
 from players.player import Player, PlayerException
 from src.cake import Cake
 
-
+def copy_geom(g):
+    return wkb.loads(wkb.dumps(g))
 class Player7(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
@@ -16,24 +17,28 @@ class Player7(Player):
         self.moves: list[tuple[Point, Point]] = []
         
         # Configurable parameters
-        self.top_k_cuts = 3  # Number of top cuts to optimize
+        self.top_k_cuts = 5  # Number of top cuts to optimize
         self.optimization_iterations = 100  # Number of optimization iterations
         self.max_area_deviation = 0.25  # Maximum area deviation tolerance
-        self.sample_step = 0.5  # Step size for sample points
+        self.sample_step = 1  # Step size for sample points
+
+    def copy_ext(self, cake):
+        new = object.__new__(Cake)
+        new.exterior_shape = self.cake.exterior_shape
+        new.interior_shape = self.cake.interior_shape
+        new.exterior_pieces = [copy_geom(p) for p in self.cake.exterior_pieces]
+
+        return new
         
     def evaluate_cut(self, from_p: Point, to_p: Point) -> float:
         """Evaluate how good a cut is by measuring deviation from the target crust ratio.
         Only considers valid cuts where the resulting pieces are within tolerance of the target area.
         Returns the sum of squared differences from the target crust ratio."""
 
-        # Check if cut is valid first
-        is_valid, _ = self.cake.cut_is_valid(from_p, to_p)
-        if not is_valid:
-            return float("inf")
+        # Copy necessary to avoid mutating the original cake
+        cake_copy = self.copy_ext(self.cake)
 
         try:
-            # Make a copy of the cake to evaluate the cut
-            cake_copy = self.cake.copy()
             cake_copy.cut(from_p, to_p)
 
             # First, enforce area tolerance for all resulting pieces.
@@ -126,11 +131,14 @@ class Player7(Player):
         sample_points = self.get_sample_points(piece)
         print(f"Found {len(sample_points)} sample points")
         
-
+        min_len = 1.0
         # Collect all valid cuts with their scores
         candidate_cuts = []
         for i in range(len(sample_points)):
             for j in range(i + 1, len(sample_points)):
+                if (sample_points[i].distance(sample_points[j]) < min_len):
+                    continue  # Skip cuts that are too short
+
                 from_p = sample_points[i]
                 to_p = sample_points[j]
 
@@ -210,7 +218,7 @@ class Player7(Player):
         current_to = Point(to_p.x, to_p.y)
 
         # Step size for optimization (start larger, decrease over time)
-        initial_step_size = 0.2
+        initial_step_size = self.sample_step/2
 
         for iteration in range(iterations):
             # Calculate step size (decreases over iterations)
