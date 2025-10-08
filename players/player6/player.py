@@ -4,7 +4,7 @@ from src.cake import Cake
 from shapely.geometry import Polygon, LineString, Point
 from shapely import MultiLineString, intersection
 from shapely.ops import split
-from typing import cast, List, Tuple, Optional
+from typing import cast, List, Optional
 from math import hypot, pi, cos, tan, isclose
 import numpy as np
 from joblib import Parallel, delayed
