@@ -12,5 +12,5 @@ wheels/
 .venv
 venv
 
-players/player8/koch_snowflake.py.DS_Store
+players/player8/koch_snowflake.py
 **/.DS_Store
