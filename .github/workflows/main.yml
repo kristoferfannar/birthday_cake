@@ -17,6 +17,7 @@ jobs:
         uses: astral-sh/ruff-action@v3
         with:
           args: "--version"
+          version: "0.13"
 
       - name: Check formatting
         run: ruff format --check --diff
