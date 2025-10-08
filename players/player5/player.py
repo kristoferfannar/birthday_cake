@@ -10,8 +10,8 @@ from typing import List, Tuple, Optional
 
 class Player5(Player):
     # Sweeps
-    NUM_DIRECTIONS = 36 # directions over [0, π)
-    OFFSETS_PER_DIRECTION = 140 # offsets per direction
+    NUM_DIRECTIONS = 36  # directions over [0, π)
+    OFFSETS_PER_DIRECTION = 140  # offsets per direction
     MAX_VERTEX_ENUM = 120
     REFINE_ITERS = 40
     REFINE_EPS = 1e-9
@@ -186,7 +186,7 @@ class Player5(Player):
             # inside bracket
             signed = produced_area - target_area
             if prev_s is not None and prev_err is not None:
-                prev_signed = prev_err  #signed error there
+                prev_signed = prev_err  # signed error there
                 if signed == 0 or prev_signed == 0 or (signed > 0) != (prev_signed > 0):
                     # Refine between prev_s and s
                     ref = self._refine_between_offsets(
@@ -322,7 +322,6 @@ class Player5(Player):
         produced_area = A0 if abs(A0 - target_area) <= abs(A1 - target_area) else A1
         err = abs(produced_area - target_area)
         return (a, b, produced_area, err)
-
 
     def _vertex_pair_chords(self, polygon: Polygon) -> List[LS]:
         out: List[LS] = []
