@@ -180,16 +180,18 @@ def find_valid_cuts_with_refinement(
     acceptable_area_error: float,
     acceptable_ratio_error: float,
     coarse_samples: int = 25,
-    top_n_to_refine: int = 5
+    top_n_to_refine: int = 5,
+    use_parallel: bool = False,
+    num_workers: int = None
 ) -> list[tuple[Point, Point, Polygon]]:
     """
     Two-phase cut finding:
     1. Coarse search with fewer points
     2. Refine top N candidates with binary search
     """
-    # Phase 1: Coarse search with relaxed tolerances
-    relaxed_area_error = acceptable_area_error * 3  # 3x more lenient
-    relaxed_ratio_error = acceptable_ratio_error * 3
+    # Phase 1: Coarse search with relaxed tolerances (stricter area, same ratio)
+    relaxed_area_error = acceptable_area_error * 2.5  # 2.5x more lenient for coarse search
+    relaxed_ratio_error = acceptable_ratio_error * 3.0  # 3x more lenient for coarse search (ratio is fine)
     
     # Generate coarse perimeter points
     boundary = piece.exterior
@@ -202,22 +204,36 @@ def find_valid_cuts_with_refinement(
     coarse_cuts = []
     skipped_boundary_cuts = 0
     
-    for i, xy1 in enumerate(coarse_points):
-        for xy2 in coarse_points[i + 1:]:
-            # Skip boundary cuts
-            if _would_cut_along_boundary(xy1, xy2, piece):
-                skipped_boundary_cuts += 1
-                continue
-            
-            if cake.cut_is_valid(xy1, xy2):
-                valid, area_diff, ratio_diff = get_areas_and_ratios(
-                    cake, xy1, xy2, target_ratio, original_area, original_ratio,
-                    relaxed_area_error, relaxed_ratio_error
-                )
+    # Use parallel search if enabled and we have enough points
+    if use_parallel and len(coarse_points) >= 20:
+        try:
+            from .parallel_search import parallel_find_coarse_cuts
+            coarse_cuts = parallel_find_coarse_cuts(
+                cake, piece, coarse_points, target_ratio, original_area, original_ratio,
+                relaxed_area_error, relaxed_ratio_error, num_workers
+            )
+        except Exception as e:
+            print(f"Parallel coarse search failed: {e}, using serial")
+            use_parallel = False  # Fall back to serial
+    
+    # Serial version (used if parallel is disabled or failed)
+    if not use_parallel or len(coarse_points) < 20:
+        for i, xy1 in enumerate(coarse_points):
+            for xy2 in coarse_points[i + 1:]:
+                # Skip boundary cuts
+                if _would_cut_along_boundary(xy1, xy2, piece):
+                    skipped_boundary_cuts += 1
+                    continue
                 
-                if valid:
-                    score = calculate_optimization_score(area_diff, ratio_diff)
-                    coarse_cuts.append((xy1, xy2, piece, score))
+                if cake.cut_is_valid(xy1, xy2):
+                    valid, area_diff, ratio_diff = get_areas_and_ratios(
+                        cake, xy1, xy2, target_ratio, original_area, original_ratio,
+                        relaxed_area_error, relaxed_ratio_error
+                    )
+                    
+                    if valid:
+                        score = calculate_optimization_score(area_diff, ratio_diff)
+                        coarse_cuts.append((xy1, xy2, piece, score))
     
     # Sort by score and take top N candidates
     coarse_cuts.sort(key=lambda x: x[3])
@@ -250,8 +266,8 @@ def find_valid_cuts_with_refinement(
                 refined_cuts.append((refined_p1, refined_p2, piece, refined_score))
             else:
                 # If refinement didn't meet strict tolerances, try with relaxed tolerances
-                relaxed_area_error = acceptable_area_error * 2
-                relaxed_ratio_error = acceptable_ratio_error * 2
+                relaxed_area_error = acceptable_area_error * 1.5  # Conservative fallback for area
+                relaxed_ratio_error = acceptable_ratio_error * 2.0  # Pragmatic fallback for ratio
                 
                 valid_relaxed, area_diff_relaxed, ratio_diff_relaxed = get_areas_and_ratios(
                     cake, refined_p1, refined_p2, target_ratio, original_area, original_ratio,
@@ -270,8 +286,8 @@ def find_valid_cuts_with_refinement(
         print(f"Refinement: No refined cuts found, falling back to best coarse cuts")
         # Use the best coarse cuts with relaxed tolerances
         for xy1, xy2, piece, score in top_candidates:
-            relaxed_area_error = acceptable_area_error * 5  # Very relaxed
-            relaxed_ratio_error = acceptable_ratio_error * 5
+            relaxed_area_error = acceptable_area_error * 3.5  # More conservative for area
+            relaxed_ratio_error = acceptable_ratio_error * 5.0  # Lenient for ratio (ratio is working well)
             
             valid, area_diff, ratio_diff = get_areas_and_ratios(
                 cake, xy1, xy2, target_ratio, original_area, original_ratio,

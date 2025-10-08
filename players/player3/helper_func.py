@@ -65,8 +65,8 @@ def get_areas_and_ratios(
     desired_piece_ratio: float = 0.5,
     original_area: float = None,
     original_ratio: float = None,
-    acceptable_area_error: float = 0.5,
-    acceptable_ratio_error: float = 0.05,
+    acceptable_area_error: float = 0.15,
+    acceptable_ratio_error: float = 0.03,
 ) -> tuple[bool, float | None, float | None]:
     """Find cuts that produce pieces with target ratio. Enhanced with configurable tolerance."""
     valid, _ = cake.cut_is_valid(xy1, xy2)
@@ -113,8 +113,8 @@ def find_valid_cuts(
     target_ratio: float = 0.5,
     original_area: float = None,
     original_ratio: float = None,
-    acceptable_area_error: float = 0.5,
-    acceptable_ratio_error: float = 0.05,
+    acceptable_area_error: float = 0.15,
+    acceptable_ratio_error: float = 0.03,
 ) -> list[tuple[Point, Point, Polygon]]:
     valid_cuts = []
     skipped_boundary_cuts = 0
