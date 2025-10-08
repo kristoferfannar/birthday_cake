@@ -352,7 +352,7 @@ class Player10(Player):
         test_cake = cake_copy.copy()
         try:
             # Find which piece gets created
-            pieces_before = [p.area for p in test_cake.get_pieces()]
+            # pieces_before = [p.area for p in test_cake.get_pieces()]
             test_cake.cut(from_p, to_p)
             pieces_after = test_cake.get_pieces()
 
@@ -539,7 +539,7 @@ class Player10(Player):
         target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
         print(f"TARGET AREA: {target_area:.2f} cm²")
         print(f"TARGET CRUST RATIO: {target_ratio:.3f}")
-        print(f"Strategy: Greedy cutting with random ratio+angle exploration\n")
+        print("Strategy: Greedy cutting with random ratio+angle exploration\n")
 
         return self._greedy_ratio_angle_cutting(target_area, target_ratio)
 
@@ -796,25 +796,25 @@ class Player10(Player):
             # print(f"  Piece 2 ({remaining_children} children): size={large_piece.area:.2f} (target={remaining_children*target_area:.2f}), crust_ratio={ratio2:.3f}")
 
             # Show current queue status
-            total_in_queue = sum(nc for _, nc in pieces_queue)
+            # total_in_queue = sum(nc for _, nc in pieces_queue)
             # print(f"  Queue: {len(pieces_queue)} pieces for {total_in_queue} total children")
 
         # Final summary
         # print(f"\n{'='*50}")
         # print(f"FINAL RESULT: {len(all_cuts)}/{self.children-1} cuts completed")
 
-        pieces = cake_copy.get_pieces()
-        areas = [p.area for p in pieces]
-        ratios = cake_copy.get_piece_ratios()
+        # pieces = cake_copy.get_pieces()
+        # areas = [p.area for p in pieces]
+        # ratios = cake_copy.get_piece_ratios()
 
         # print(f"\nPiece areas: {[f'{a:.2f}' for a in sorted(areas)]}")
         # print(f"  Min: {min(areas):.2f}, Max: {max(areas):.2f}, Span: {max(areas) - min(areas):.2f}")
 
         # print(f"\nCrust ratios: {[f'{r:.3f}' for r in ratios]}")
-        if len(ratios) > 1:
-            ratio_variance = stdev(ratios)
-            # print(f"  Variance: {ratio_variance:.4f}")
-            # print(f"  Min: {min(ratios):.3f}, Max: {max(ratios):.3f}, Span: {max(ratios) - min(ratios):.3f}")
+        # if len(ratios) > 1:
+        # ratio_variance = stdev(ratios)
+        # print(f"  Variance: {ratio_variance:.4f}")
+        # print(f"  Min: {min(ratios):.3f}, Max: {max(ratios):.3f}, Span: {max(ratios) - min(ratios):.3f}")
         # print(f"{'='*50}\n")
 
         return all_cuts
@@ -839,7 +839,7 @@ class Player10(Player):
 
             best_cut = None
             best_score = float("inf")
-            best_angle = None
+            # best_angle = None
 
             num_attempts = (
                 self.num_angle_attempts * 2 if is_last_cut else self.num_angle_attempts
@@ -865,12 +865,12 @@ class Player10(Player):
                     if score < best_score:
                         best_score = score
                         best_cut = (from_p, to_p)
-                        best_angle = angle
+                        # best_angle = angle
                         best_ratio = piece_ratio
                         best_size = piece_area
 
             if best_cut is None:
-                print(f"  Failed: No valid cut found")
+                # print(f"  Failed: No valid cut found")
                 continue
 
             from_p, to_p = best_cut
@@ -878,7 +878,7 @@ class Player10(Player):
                 cake_copy.cut(from_p, to_p)
                 cuts.append((from_p, to_p))
 
-                areas = [p.area for p in cake_copy.get_pieces()]
+                # areas = [p.area for p in cake_copy.get_pieces()]
                 size_error = abs(best_size - target_area)
                 ratio_error = abs(best_ratio - target_ratio)
                 # print(f"  Best angle: {best_angle:.1f}° (tried {valid_attempts} valid angles)")
