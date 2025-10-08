@@ -1,10 +1,14 @@
 from __future__ import annotations
-from typing import List, Tuple, Iterable
+from typing import List, Tuple, Iterable, Optional
 
 from shapely import Point  # endpoints the engine expects
-from shapely.geometry import Point as GeoPoint
-from shapely.geometry import Polygon as ShapelyPolygon, LinearRing as ShapelyLinearRing
+from shapely.geometry import (
+    Point as GeoPoint,
+    Polygon as ShapelyPolygon,
+    LinearRing as ShapelyLinearRing,
+)
 from shapely.geometry.base import BaseGeometry
+from shapely.geometry import Polygon as _ShPoly, MultiPolygon as _ShMulti
 
 from players.player import Player
 from src.cake import Cake
@@ -114,8 +118,6 @@ def _clip_x_le(poly: Poly, t: float) -> Poly:
 
 def _area_left_of_x(poly_ccw: Poly, x: float) -> float:
     return abs(_area(_clip_x_le(poly_ccw, x)))
-
-
 # --- vertical intersections & chords ---
 def _vertical_intersections(poly: Poly, x: float) -> List[float]:
     ys: List[float] = []
@@ -159,20 +161,319 @@ def _find_cut_x(poly_ccw: Poly, target_area: float, lo: float, hi: float) -> flo
     return 0.5 * (lo + hi)
 
 
-# --- ask the engine if a chord is “good” (no slivers etc.) ---
-def _is_good_cut(cake: Cake, x: float, y0: float, y1: float) -> bool:
-    a, b = Point(x, y0), Point(x, y1)
+# --- generic segment validator using engine hooks (works for any segment) ---
+def _is_good_segment(cake: Cake, a: Point2D, b: Point2D) -> bool:
+    pa, pb = Point(a[0], a[1]), Point(b[0], b[1])
     if hasattr(cake, "cut_is_valid"):
         try:
-            ok, reason = cake.cut_is_valid(a, b)
+            ok, _ = cake.cut_is_valid(pa, pb)
             if not ok:
                 return False
         except Exception:
             return False
     if hasattr(cake, "does_line_cut_piece_well"):
-        if not cake.does_line_cut_piece_well(a, b):
+        if not cake.does_line_cut_piece_well(pa, pb):
             return False
     return True
+
+
+def _is_good_cut(cake: Cake, x: float, y0: float, y1: float) -> bool:
+    """Back-compat helper for vertical segments."""
+    return _is_good_segment(cake, (x, y0), (x, y1))
+
+
+# ----------------- NEW: horizontal clip & chords -----------------
+def _clip_y_le(poly: Poly, t: float) -> Poly:
+    def inside(p: Point2D) -> bool:
+        return p[1] <= t + 1e-12
+
+    def intersect(a: Point2D, b: Point2D) -> Point2D:
+        x1, y1 = a
+        x2, y2 = b
+        dy = y2 - y1
+        if abs(dy) < EPS:
+            return (x1, t)
+        s = (t - y1) / dy
+        return (x1 + s * (x2 - x1), t)
+
+    out: Poly = []
+    n = len(poly)
+    for i in range(n):
+        cur = poly[i]
+        prv = poly[(i - 1) % n]
+        ci, pi = inside(cur), inside(prv)
+        if ci:
+            if not pi:
+                out.append(intersect(prv, cur))
+            out.append(cur)
+        elif pi:
+            out.append(intersect(prv, cur))
+    return out
+
+
+def _area_below_y(poly_ccw: Poly, y: float) -> float:
+    return abs(_area(_clip_y_le(poly_ccw, y)))
+
+
+def _horizontal_intersections(poly: Poly, y: float) -> List[float]:
+    xs: List[float] = []
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 <= y <= y2) or (y2 <= y <= y1):
+            dy = y2 - y1
+            if abs(dy) < EPS:
+                xs.extend([x1, x2])
+            else:
+                s = (y - y1) / dy
+                xs.append(x1 + s * (x2 - x1))
+    xs.sort()
+    out: List[float] = []
+    for x in xs:
+        if not out or abs(x - out[-1]) > 1e-9:
+            out.append(x)
+    return out
+
+
+def _horizontal_chords(poly: Poly, y: float) -> list[tuple[float, float]]:
+    xs = _horizontal_intersections(poly, y)
+    chords: list[tuple[float, float]] = []
+    for i in range(0, len(xs) - 1, 2):
+        x0, x1 = xs[i], xs[i + 1]
+        if x1 - x0 > 1e-9:
+            chords.append((x0, x1))
+    return chords
+
+
+def _find_cut_y(poly_ccw: Poly, target_area: float, lo: float, hi: float) -> float:
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        a = _area_below_y(poly_ccw, mid)
+        if a < target_area:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+# ----------------- NEW: per-piece area targeting helpers -----------------
+def _area_between(poly_ccw: Poly, xa: float, xb: float) -> float:
+    """Area of the polygon part with xa < x <= xb (assuming xa < xb)."""
+    if xb <= xa + 1e-12:
+        return 0.0
+    return _area_left_of_x(poly_ccw, xb) - _area_left_of_x(poly_ccw, xa)
+
+
+def _find_next_cut_x(poly_ccw: Poly, target_piece_area: float, xa: float, xb: float) -> float:
+    """Find x in [xa, xb] such that area_between(xa, x) ~= target_piece_area."""
+    lo, hi = xa, xb
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        a = _area_between(poly_ccw, xa, mid)
+        if a < target_piece_area:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+# ----------------- NEW: shapely helpers for crust & pieces -----------------
+def _to_shpoly(poly: Poly) -> _ShPoly:
+    return _ShPoly(poly)
+
+
+def _explode_to_polys(g) -> List[_ShPoly]:
+    if isinstance(g, _ShPoly):
+        return [g]
+    if isinstance(g, _ShMulti):
+        return [p for p in g.geoms if isinstance(p, _ShPoly)]
+    return []
+
+
+def _crust_interior_polys(poly: Poly, crust_width: float = 1.0):
+    """Return (P, P_interior, crust_area, interior_area)."""
+    P = _to_shpoly(poly)
+    if not P.is_valid or P.area <= 0:
+        return P, _ShPoly(), 0.0, 0.0
+    Pin = P.buffer(-crust_width, join_style=2)  # mitre-like
+    if Pin.is_empty:
+        Pin = _ShPoly()
+    crust_area = max(P.area - Pin.area, 0.0)
+    return P, Pin, crust_area, Pin.area
+
+
+def _piece_crust_ratio(poly_piece: Poly, Pin_global: _ShPoly) -> float:
+    """Crust ratio = crust_area / total_area for this piece using global interior P_in."""
+    Pk = _to_shpoly(poly_piece)
+    if Pk.is_empty or Pk.area <= 0:
+        return 0.0
+    interior_k = Pk.intersection(Pin_global) if not Pin_global.is_empty else _ShPoly()
+    crust_k = max(Pk.area - interior_k.area, 0.0)
+    return crust_k / Pk.area if Pk.area > 0 else 0.0
+
+
+def _slab_pieces_vertical(poly_ccw: Poly, xs: List[float]) -> List[Poly]:
+    """Return a list of polygon pieces for vertical slabs defined by xs (monotone)."""
+    pieces: List[Poly] = []
+    for i in range(len(xs) - 1):
+        xa, xb = xs[i], xs[i + 1]
+        left = _to_shpoly(_clip_x_le(poly_ccw, xb))
+        right = _to_shpoly(_clip_x_le(poly_ccw, xa))
+        diff = left.difference(right)
+        for p in _explode_to_polys(diff):
+            if p.area > 1e-10 and p.exterior:
+                pieces.append(_as_points(list(p.exterior.coords)[:-1]))
+    return pieces
+
+
+def _slab_pieces_horizontal(poly_ccw: Poly, ys: List[float]) -> List[Poly]:
+    pieces: List[Poly] = []
+    for i in range(len(ys) - 1):
+        ya, yb = ys[i], ys[i + 1]
+        below = _to_shpoly(_clip_y_le(poly_ccw, yb))
+        above = _to_shpoly(_clip_y_le(poly_ccw, ya))
+        diff = below.difference(above)
+        for p in _explode_to_polys(diff):
+            if p.area > 1e-10 and p.exterior:
+                pieces.append(_as_points(list(p.exterior.coords)[:-1]))
+    return pieces
+
+
+def _score_set(pieces: List[Poly], Pin_global: _ShPoly, target_piece_area: float) -> tuple[float, float]:
+    """
+    Return (max_area_err, crust_ratio_range).
+    max_area_err: max |area_i - target|
+    crust_ratio_range: max(r_i) - min(r_i)
+    """
+    areas: List[float] = []
+    ratios: List[float] = []
+    for Pk in pieces:
+        A = abs(_area(Pk))
+        areas.append(A)
+        ratios.append(_piece_crust_ratio(Pk, Pin_global))
+    max_err = max(abs(A - target_piece_area) for A in areas) if areas else float("inf")
+    rng = (max(ratios) - min(ratios)) if len(ratios) >= 2 else 0.0
+    return max_err, rng
+
+
+def _evaluate_plan(poly_ccw: Poly,
+                   cuts: List[tuple[Point, Point]],
+                   target_piece_area: float) -> tuple[float, float, int]:
+    """
+    Score a plan of parallel cuts.
+    Returns (max_area_err, crust_ratio_range, piece_count).
+    Detects orientation by reading segments.
+    """
+    if not cuts:
+        return float("inf"), float("inf"), 0
+
+    # orientation detection (assume all parallel)
+    is_vertical = all(abs(c[0].x - c[1].x) < 1e-9 for c in cuts)
+    is_horizontal = all(abs(c[0].y - c[1].y) < 1e-9 for c in cuts)
+
+    xmin, ymin, xmax, ymax = _bbox(poly_ccw)
+    _, Pin, _, _ = _crust_interior_polys(poly_ccw, crust_width=1.0)
+
+    if is_vertical:
+        xs = [xmin] + [c[0].x for c in cuts] + [xmax]
+        xs = sorted(xs)
+        pieces = _slab_pieces_vertical(poly_ccw, xs)
+    elif is_horizontal:
+        ys = [ymin] + [c[0].y for c in cuts] + [ymax]
+        ys = sorted(ys)
+        pieces = _slab_pieces_horizontal(poly_ccw, ys)
+    else:
+        # mixed orientation → not supported in this scorer
+        return float("inf"), float("inf"), 0
+
+    max_err, crust_rng = _score_set(pieces, Pin, target_piece_area)
+    return max_err, crust_rng, len(pieces)
+# ----------------- NEW: human-style fallback -----------------
+def _human_style_fallback(poly_ccw: Poly, n: int, cake: Cake) -> list[tuple[Point, Point]]:
+    """
+    Strategy:
+      1) Try ONE big cut, vertical or horizontal, that splits kids into k and n-k (k=floor(n/2)).
+      2) Finish each side with straight parallel cuts (same orientation).
+    """
+    xmin, ymin, xmax, ymax = _bbox(poly_ccw)
+    total = abs(_area(poly_ccw))
+    target_piece = total / n
+    k_left = n // 2
+    k_right = n - k_left
+
+    best_plan: Optional[list[tuple[Point, Point]]] = None
+    best_score: Optional[tuple[float, float]] = None  # (max_err, crust_rng)
+
+    # ---- Vertical option ----
+    if xmax - xmin > 0:
+        target_left = total * (k_left / n)
+        x0 = _find_cut_x(poly_ccw, target_left, xmin, xmax)
+        chords = _vertical_chords(poly_ccw, x0)
+        if chords:
+            yl, yh = max(chords, key=lambda ab: ab[1] - ab[0])
+            if _is_good_segment(cake, (x0, yl), (x0, yh)):
+                cuts_v: list[tuple[Point, Point]] = [(Point(x0, yl), Point(x0, yh))]
+
+                # Build left-side cuts
+                xL = xmin
+                for _ in range(max(0, k_left - 1)):
+                    xL = _find_next_cut_x(poly_ccw, target_piece, xL, x0)
+                    ch = _vertical_chords(poly_ccw, xL)
+                    if ch:
+                        yl2, yh2 = max(ch, key=lambda ab: ab[1] - ab[0])
+                        if _is_good_segment(cake, (xL, yl2), (xL, yh2)):
+                            cuts_v.append((Point(xL, yl2), Point(xL, yh2)))
+
+                # Build right-side cuts
+                xR = x0
+                for _ in range(max(0, k_right - 1)):
+                    xR = _find_next_cut_x(poly_ccw, target_piece, xR, xmax)
+                    ch = _vertical_chords(poly_ccw, xR)
+                    if ch:
+                        yl2, yh2 = max(ch, key=lambda ab: ab[1] - ab[0])
+                        if _is_good_segment(cake, (xR, yl2), (xR, yh2)):
+                            cuts_v.append((Point(xR, yl2), Point(xR, yh2)))
+
+                # Score
+                sc = _evaluate_plan(poly_ccw, cuts_v, target_piece)
+                if sc[2] == n:  # piece count ok
+                    best_plan, best_score = cuts_v, (sc[0], sc[1])
+
+    # ---- Horizontal option ----
+    if ymax - ymin > 0:
+        target_below = total * (k_left / n)
+        y0 = _find_cut_y(poly_ccw, target_below, ymin, ymax)
+        chords_h = _horizontal_chords(poly_ccw, y0)
+        if chords_h:
+            xl, xr = max(chords_h, key=lambda ab: ab[1] - ab[0])
+            if _is_good_segment(cake, (xl, y0), (xr, y0)):
+                cuts_h: list[tuple[Point, Point]] = [(Point(xl, y0), Point(xr, y0))]
+
+                # Bottom group
+                yL = ymin
+                for _ in range(max(0, k_left - 1)):
+                    yL = _find_cut_y(poly_ccw, target_piece, yL, y0)
+                    ch = _horizontal_chords(poly_ccw, yL)
+                    if ch:
+                        xl2, xr2 = max(ch, key=lambda ab: ab[1] - ab[0])
+                        if _is_good_segment(cake, (xl2, yL), (xr2, yL)):
+                            cuts_h.append((Point(xl2, yL), Point(xr2, yL)))
+
+                # Top group
+                yU = y0
+                for _ in range(max(0, k_right - 1)):
+                    yU = _find_cut_y(poly_ccw, target_piece, yU, ymax)
+                    ch = _horizontal_chords(poly_ccw, yU)
+                    if ch:
+                        xl2, xr2 = max(ch, key=lambda ab: ab[1] - ab[0])
+                        if _is_good_segment(cake, (xl2, yU), (xr2, yU)):
+                            cuts_h.append((Point(xl2, yU), Point(xr2, yU)))
+
+                sc = _evaluate_plan(poly_ccw, cuts_h, target_piece)
+                if sc[2] == n:
+                    if best_score is None or (sc[0], sc[1]) < best_score:
+                        best_plan, best_score = cuts_h, (sc[0], sc[1])
+
+    return best_plan or []
 
 
 # ----------------- Player -----------------
@@ -181,7 +482,14 @@ class Player1(Player):
         super().__init__(children, cake, cake_path)
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
-        """Return children-1 valid vertical cuts (concave-safe, near equal-area)."""
+        """
+        Always compute BOTH:
+          (A) Primary: vertical straight cuts with per-piece area targeting (equal areas).
+          (B) Fallback: one big vertical OR horizontal cut to split kids in half, then
+                        finish each side with parallel cuts.
+        Score both on (max_area_err, crust_ratio_range) and return the better plan.
+        Ties prefer the primary plan.
+        """
         n = int(self.children)
         if n <= 1:
             return []
@@ -199,91 +507,82 @@ class Player1(Player):
         if W <= 0:
             return []
 
-        # helpers to choose a feasible chord at x
+        AREA_TOL = 0.5  # cm^2 per spec
+        RATIO_TOL = 0.05  # 5%
+        target_piece = total / n
+
+        # ---------- PRIMARY PLAN: vertical per-piece targeting ----------
         def try_x(xx: float) -> tuple[float, float] | None:
             chords = _vertical_chords(poly, xx)
             if not chords:
                 return None
-            # Prefer longer chords first (less likely to make slivers)
             chords.sort(key=lambda ab: ab[1] - ab[0], reverse=True)
-
-            # 1) engine validation if available
+            # engine validation if available
             for yl, yh in chords:
-                if _is_good_cut(self.cake, xx, yl, yh):
+                if _is_good_segment(self.cake, (xx, yl), (xx, yh)):
                     return (yl, yh)
-
-            # 2) shapely containment of chord midpoint as a fallback
+            # shapely containment of chord midpoint as a fallback
             ext = getattr(self.cake, "exterior_shape", None)
             if isinstance(ext, BaseGeometry):
                 for yl, yh in chords:
                     mid = 0.5 * (yl + yh)
                     if ext.contains(GeoPoint(xx, mid)):
                         return (yl, yh)
-
-            # 3) last resort pick the longest span
+            # last resort pick longest
             return chords[0] if chords else None
 
-        cuts: list[tuple[Point, Point]] = []
+        cuts_primary: list[tuple[Point, Point]] = []
+        nudges = [0.0, 0.001 * W, -0.001 * W, 0.005 * W, -0.005 * W, 0.01 * W, -0.01 * W, 0.02 * W, -0.02 * W]
+        x_left = xmin
 
-        # small neighborhood to dodge tips/vertices (relative to cake width)
-        nudges = [
-            0.0,
-            0.001 * W,
-            -0.001 * W,
-            0.005 * W,
-            -0.005 * W,
-            0.01 * W,
-            -0.01 * W,
-            0.02 * W,
-            -0.02 * W,
-            0.05 * W,
-            -0.05 * W,
-        ]
-
-        for i in range(1, n):
-            # ideal area target
-            target = total * (i / n)
-            x0 = _find_cut_x(poly, target, xmin, xmax)
-
+        for _i in range(1, n):
+            x0 = _find_next_cut_x(poly, target_piece, x_left, xmax)
             chosen_x = None
             chosen = None
+            best = None  # (area_err, xx, (yl,yh))
 
-            # 1) try ideal x with nudges
             for dx in nudges:
-                xx = x0 + dx
+                xx = max(min(x0 + dx, xmax), x_left)
                 res = try_x(xx)
-                if res and _is_good_cut(self.cake, xx, res[0], res[1]):
-                    chosen_x, chosen = xx, res
-                    break
-
-            # 2) if still nothing, relax area target slightly (±0.5% → ±3%)
-            if chosen is None:
-                for pct in (0.005, -0.005, 0.015, -0.015, 0.03, -0.03):
-                    adj = total * max(min((i / n) + pct, 1.0), 0.0)
-                    x2 = _find_cut_x(poly, adj, xmin, xmax)
-                    for dx in nudges:
-                        xx = x2 + dx
-                        res = try_x(xx)
-                        if res and _is_good_cut(self.cake, xx, res[0], res[1]):
-                            chosen_x, chosen = xx, res
-                            break
-                    if chosen is not None:
-                        break
-
-            # 3) as a final fallback, scan a coarse grid across the cake
-            if chosen is None:
-                grid = [xmin + k * (W / 40.0) for k in range(41)]
-                for xx in grid:
-                    res = try_x(xx)
-                    if res and _is_good_cut(self.cake, xx, res[0], res[1]):
+                if res and _is_good_segment(self.cake, (xx, res[0]), (xx, res[1])):
+                    piece_area = _area_between(poly, x_left, xx)
+                    err = abs(piece_area - target_piece)
+                    if err <= AREA_TOL:
                         chosen_x, chosen = xx, res
                         break
+                    if best is None or err < best[0]:
+                        best = (err, xx, res)
 
-            # if truly nothing feasible, skip (avoid invalid move)
+            if chosen is None and best is not None:
+                _, chosen_x, chosen = best
+
             if chosen is None or chosen_x is None:
-                continue
+                break
 
             yl, yh = chosen
-            cuts.append((Point(chosen_x, yl), Point(chosen_x, yh)))
+            cuts_primary.append((Point(chosen_x, yl), Point(chosen_x, yh)))
+            x_left = chosen_x
 
-        return cuts
+        # score primary
+        max_err_A, crust_rng_A, piece_count_A = _evaluate_plan(poly, cuts_primary, target_piece)
+
+        # ---------- FALLBACK PLAN ----------
+        cuts_fallback = _human_style_fallback(poly, n, self.cake)
+        max_err_B, crust_rng_B, piece_count_B = _evaluate_plan(poly, cuts_fallback, target_piece) if cuts_fallback else (float("inf"), float("inf"), 0)
+
+        # ---------- CHOOSE BEST ----------
+        # prefer lower (max_area_err, crust_ratio_range); tie → primary
+        score_A = (max_err_A, crust_rng_A, piece_count_A == n)
+        score_B = (max_err_B, crust_rng_B, piece_count_B == n)
+
+        # enforce piece count feasibility first
+        if score_A[2] and not score_B[2]:
+            return cuts_primary
+        if score_B[2] and not score_A[2]:
+            return cuts_fallback
+
+        # both feasible or both not → compare (max_err, crust_rng)
+        if (score_B[0], score_B[1]) < (score_A[0], score_A[1]):
+            return cuts_fallback
+        else:
+            return cuts_primary
