@@ -352,7 +352,7 @@ class Player10(Player):
         test_cake = cake_copy.copy()
         try:
             # Find which piece gets created
-            pieces_before = [p.area for p in test_cake.get_pieces()]
+            # pieces_before = [p.area for p in test_cake.get_pieces()]
             test_cake.cut(from_p, to_p)
             pieces_after = test_cake.get_pieces()
 
@@ -539,7 +539,7 @@ class Player10(Player):
         target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
         print(f"TARGET AREA: {target_area:.2f} cm²")
         print(f"TARGET CRUST RATIO: {target_ratio:.3f}")
-        print(f"Strategy: Greedy cutting with random ratio+angle exploration\n")
+        # print(f"Strategy: Greedy cutting with random ratio+angle exploration\n")
 
         return self._greedy_ratio_angle_cutting(target_area, target_ratio)
 
@@ -890,7 +890,7 @@ class Player10(Player):
                         best_size = piece_area
 
             if best_cut is None:
-                print(f"  Failed: No valid cut found")
+                print("  Failed: No valid cut found")
                 continue
 
             from_p, to_p = best_cut
