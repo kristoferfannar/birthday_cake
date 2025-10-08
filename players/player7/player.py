@@ -3,8 +3,11 @@ from shapely import Point, wkb
 from players.player import Player, PlayerException
 from src.cake import Cake
 
+
 def copy_geom(g):
     return wkb.loads(wkb.dumps(g))
+
+
 class Player7(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
@@ -15,7 +18,7 @@ class Player7(Player):
         self.target_crust_ratio = total_crust_area / cake.get_area()
 
         self.moves: list[tuple[Point, Point]] = []
-        
+
         # Configurable parameters
         self.top_k_cuts = 5  # Number of top cuts to optimize
         self.optimization_iterations = 100  # Number of optimization iterations
@@ -29,8 +32,8 @@ class Player7(Player):
         new.exterior_pieces = [copy_geom(p) for p in self.cake.exterior_pieces]
 
         return new
-        
-    def evaluate_cut(self, from_p: Point, to_p: Point) -> float:
+
+    def evaluate_cut(self, from_p: Point, to_p: Point, allow_bad_cuts=False) -> float:
         """Evaluate how good a cut is by measuring deviation from the target crust ratio.
         Only considers valid cuts where the resulting pieces are within tolerance of the target area.
         Returns the sum of squared differences from the target crust ratio."""
@@ -48,7 +51,9 @@ class Player7(Player):
                 nearest_area_multiple = area_multiple * self.target_area
                 area_deviation = abs(piece_size - nearest_area_multiple)
                 if area_deviation > self.max_area_deviation:
-                    return float("inf")
+                    return (
+                        area_deviation * 1000
+                    )  # Heavy penalty for out-of-tolerance pieces
 
             # If all pieces are within tolerance, score using crust ratio deviation
             ratio_deviation_total = 0.0
@@ -56,7 +61,7 @@ class Player7(Player):
                 interior_ratio = cake_copy.get_piece_ratio(piece)
                 piece_crust_ratio = 1 - interior_ratio
                 crust_ratio_deviation = piece_crust_ratio - self.target_crust_ratio
-                ratio_deviation_total += crust_ratio_deviation ** 2
+                ratio_deviation_total += crust_ratio_deviation**2
 
             return ratio_deviation_total
 
@@ -70,10 +75,10 @@ class Player7(Player):
         """
         if step is None:
             step = self.sample_step
-            
+
         coords = list(piece.exterior.coords[:-1])  # Exclude the duplicate last point
         raw_points: list[tuple[float, float]] = []
-        
+
         # Add existing cut endpoints that lie on this piece's boundary
         for move in self.moves:
             for point in move:
@@ -124,27 +129,32 @@ class Player7(Player):
         pieces = self.cake.get_pieces()
         if not pieces:
             raise PlayerException("no pieces available to cut")
-        
+
         piece = max(pieces, key=lambda p: p.area)
 
         # Get sample points along the piece boundary
         sample_points = self.get_sample_points(piece)
         print(f"Found {len(sample_points)} sample points")
-        
+
         min_len = 1.0
         # Collect all valid cuts with their scores
         candidate_cuts = []
         for i in range(len(sample_points)):
             for j in range(i + 1, len(sample_points)):
-                if (sample_points[i].distance(sample_points[j]) < min_len):
+                if sample_points[i].distance(sample_points[j]) < min_len:
                     continue  # Skip cuts that are too short
 
                 from_p = sample_points[i]
                 to_p = sample_points[j]
 
-                score = self.evaluate_cut(from_p, to_p)
+                score = self.evaluate_cut(from_p, to_p, allow_bad_cuts=True)
+
                 if score != float("inf"):  # Only consider valid cuts
                     candidate_cuts.append((score, from_p, to_p))
+            candidate_cuts.sort(key=lambda x: x[0])
+            candidate_cuts = candidate_cuts[
+                :50
+            ]  # Keep only the best 50 candidates so far
 
         if not candidate_cuts:
             raise PlayerException("could not find a valid cut")
@@ -152,16 +162,18 @@ class Player7(Player):
         # Sort by score and take top k
         print(f"Found {len(candidate_cuts)} candidate cuts")
         candidate_cuts.sort(key=lambda x: x[0])
-        top_cuts = candidate_cuts[:self.top_k_cuts]
+        top_cuts = candidate_cuts[: self.top_k_cuts]
 
         # Optimize each of the top cuts
         best_optimized_score = float("inf")
         best_optimized_cut = None
-        
+
         for original_score, from_p, to_p in top_cuts:
-            optimized_from_p, optimized_to_p = self.optimize_cut(from_p, to_p, iterations=self.optimization_iterations)
+            optimized_from_p, optimized_to_p = self.optimize_cut(
+                from_p, to_p, iterations=self.optimization_iterations
+            )
             optimized_score = self.evaluate_cut(optimized_from_p, optimized_to_p)
-            
+
             if optimized_score < best_optimized_score:
                 best_optimized_score = optimized_score
                 best_optimized_cut = (optimized_from_p, optimized_to_p)
@@ -218,7 +230,7 @@ class Player7(Player):
         current_to = Point(to_p.x, to_p.y)
 
         # Step size for optimization (start larger, decrease over time)
-        initial_step_size = self.sample_step/2
+        initial_step_size = self.sample_step / 2
 
         for iteration in range(iterations):
             # Calculate step size (decreases over iterations)
@@ -278,7 +290,7 @@ class Player7(Player):
         for cut in range(self.children - 1):
             print(f"Finding cut number {cut + 1}")
             optimized_from_p, optimized_to_p = self.find_best_cut()
-            
+
             self.moves.append((optimized_from_p, optimized_to_p))
 
             # Simulate the cut on our cake to maintain accurate state
