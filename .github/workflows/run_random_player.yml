@@ -22,4 +22,4 @@ jobs:
       #   run: uv python install
 
       - name: Run random player
-        run: uv run main.py --player r
+        run: uv run main.py --player r --import-cake cakes/rectangle.csv --seed 0
