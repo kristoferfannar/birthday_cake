@@ -118,7 +118,9 @@ class Cake:
 
         # draw interiors
         for ic in int_coords:
-            canvas.create_polygon(ic, outline=c.CAKE_INTERIOR, fill=c.CAKE_INTERIOR, width=0)
+            canvas.create_polygon(
+                ic, outline=c.CAKE_INTERIOR, fill=c.CAKE_INTERIOR, width=0
+            )
 
         # write edge points to canvas
         coords = [i.coords[0] for i in self.get_boundary_points()][:-1]
