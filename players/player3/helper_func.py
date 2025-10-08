@@ -65,8 +65,8 @@ def get_areas_and_ratios(
     desired_piece_ratio: float = 0.5,
     original_area: float = None,
     original_ratio: float = None,
-    acceptable_area_error: float = 0.5,
-    acceptable_ratio_error: float = 0.05,
+    acceptable_area_error: float = 0.15,
+    acceptable_ratio_error: float = 0.03,
 ) -> tuple[bool, float | None, float | None]:
     """Find cuts that produce pieces with target ratio. Enhanced with configurable tolerance."""
     valid, _ = cake.cut_is_valid(xy1, xy2)
@@ -90,17 +90,32 @@ def get_areas_and_ratios(
     area_diffs = [abs(area - target_area) for area in areas]
     min_diff = min(area_diffs)
 
-    # check ratio of crust to pie 
+    # check ratio of crust to pie
     ratios = [cake.get_piece_ratio(piece) for piece in split_pieces]
     ratio_diffs = [abs(ratio - original_ratio) for ratio in ratios]
 
-    #get average of the two ratio diffs since ratio should be mainteined for both pieces??? This might be wrong logic
-    avg_ratio_diff = (ratio_diffs[0] + ratio_diffs[1]) / 2
+    # get average of the two ratio diffs since ratio should be mainteined for both pieces??? This might be wrong logic
+    # avg_ratio_diff = (ratio_diffs[0] + ratio_diffs[1]) / 2  # COMMENTED OUT: This averaging approach can hide poor cuts
 
-    if min_diff <= acceptable_area_error and ratio_diffs[0] <= acceptable_ratio_error and ratio_diffs[1] <= acceptable_ratio_error:
-        return True, min_diff, avg_ratio_diff
+    # NEW IMPLEMENTATION: Use sum of squared differences (penalizes large deviations more)
+    squared_ratio_diff = (ratio_diffs[0] ** 2 + ratio_diffs[1] ** 2) / 2
 
-    return False, min_diff, avg_ratio_diff
+    if (
+        min_diff <= acceptable_area_error
+        and ratio_diffs[0] <= acceptable_ratio_error
+        and ratio_diffs[1] <= acceptable_ratio_error
+    ):
+        return (
+            True,
+            min_diff,
+            squared_ratio_diff,
+        )  # UPDATED: Using squared_ratio_diff instead of avg_ratio_diff
+
+    return (
+        False,
+        min_diff,
+        squared_ratio_diff,
+    )  # UPDATED: Using squared_ratio_diff instead of avg_ratio_diff
 
 
 # probably can use binary search to make this faster and optimize our search route instead of n^2 time complexity going through each point
@@ -110,8 +125,8 @@ def find_valid_cuts(
     target_ratio: float = 0.5,
     original_area: float = None,
     original_ratio: float = None,
-    acceptable_area_error: float = 0.5,
-    acceptable_ratio_error: float = 0.05,
+    acceptable_area_error: float = 0.15,
+    acceptable_ratio_error: float = 0.03,
 ) -> list[tuple[Point, Point, Polygon]]:
     valid_cuts = []
     skipped_boundary_cuts = 0
@@ -126,8 +141,17 @@ def find_valid_cuts(
                     continue
 
                 if cake.cut_is_valid(xy1, xy2):
-                    areas_and_ratios_valid, area_diff, ratio_diff = get_areas_and_ratios(
-                        cake, xy1, xy2, target_ratio, original_area, original_ratio, acceptable_area_error, acceptable_ratio_error
+                    areas_and_ratios_valid, area_diff, ratio_diff = (
+                        get_areas_and_ratios(
+                            cake,
+                            xy1,
+                            xy2,
+                            target_ratio,
+                            original_area,
+                            original_ratio,
+                            acceptable_area_error,
+                            acceptable_ratio_error,
+                        )
                     )
 
                     if areas_and_ratios_valid:

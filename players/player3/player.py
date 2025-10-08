@@ -8,9 +8,23 @@ from .helper_func import find_valid_cuts
 class Player3(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
+        # NEW: Configuration flags for refinement system
+        self.use_refinement = True  # Toggle for new optimization
+        self.coarse_samples = (
+            60  # For coarse search phase (increased for better coverage)
+        )
+        self.top_n_refine = 10  # How many candidates to refine (more candidates for better optimization)
+
+        # NEW: Parallel processing configuration
+        self.use_parallel = True  # Toggle for parallel processing
+        self.num_workers = None  # None = auto-detect optimal worker count
+
+        # OLD: Keep for backward compatibility
         self.num_samples = 70  # Number of perimeter points to sample (high precision)
         self.cuts = []
-        self.original_ratio = cake.get_piece_ratio(cake.get_pieces()[0])  # store original ratio once
+        self.original_ratio = cake.get_piece_ratio(
+            cake.get_pieces()[0]
+        )  # store original ratio once
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Greedily generate cuts to divide cake into equal pieces."""
@@ -43,25 +57,66 @@ class Player3(Player):
         self, cake: Cake, piece, desired_cut_ratio: float
     ) -> tuple[Point, Point] | None:
         """Find the best cut for a specific piece using optimized perimeter approach."""
-        # Generate perimeter points for this piece
-        perimeter_points = self._get_perimeter_points_for_piece(piece)
         piece_area = piece.area
 
-        # Use find_valid_cuts with configurable tolerance
-        # Try with different tolerances if no cuts found
-        for tolerance_area in [0.5, 1.0, 2.0, 5.0]:
-            for tolerance_ratio in [0.05, 0.1, 0.2]: # Ww can do the same tolerance thing for ratio not sure if we want to
-                valid_cuts = find_valid_cuts(
-                    cake,
-                    perimeter_points,
-                    desired_cut_ratio,
-                    piece_area,
-                    self.original_ratio,
-                    acceptable_area_error=tolerance_area,
-                    acceptable_ratio_error=tolerance_ratio
-                )
+        # NEW: Use refinement system if enabled
+        if self.use_refinement:
+            from .refinement import find_valid_cuts_with_refinement
+
+            # Try with different tolerances if no cuts found (strict area for homogeneity, relaxed ratio)
+            for tolerance_area in [0.15, 0.25, 0.35, 0.5]:
+                for tolerance_ratio in [0.03, 0.05, 0.1]:
+                    valid_cuts = find_valid_cuts_with_refinement(
+                        cake,
+                        piece,
+                        desired_cut_ratio,
+                        piece_area,
+                        self.original_ratio,
+                        acceptable_area_error=tolerance_area,
+                        acceptable_ratio_error=tolerance_ratio,
+                        coarse_samples=self.coarse_samples,
+                        top_n_to_refine=self.top_n_refine,
+                        use_parallel=self.use_parallel,
+                        num_workers=self.num_workers,
+                    )
+                    if valid_cuts:
+                        break
                 if valid_cuts:
                     break
+        else:
+            # EXISTING: Keep old code path unchanged
+            perimeter_points = self._get_perimeter_points_for_piece(piece)
+
+            # Use find_valid_cuts with configurable tolerance
+            # Try with different tolerances if no cuts found (strict area for homogeneity, relaxed ratio)
+            for tolerance_area in [0.15, 0.25, 0.35, 0.5]:
+                for tolerance_ratio in [0.03, 0.05, 0.1]:
+                    # Use parallel search if enabled
+                    if self.use_parallel:
+                        from .parallel_search import parallel_find_valid_cuts
+
+                        valid_cuts = parallel_find_valid_cuts(
+                            cake,
+                            perimeter_points,
+                            desired_cut_ratio,
+                            piece_area,
+                            self.original_ratio,
+                            acceptable_area_error=tolerance_area,
+                            acceptable_ratio_error=tolerance_ratio,
+                            num_workers=self.num_workers,
+                        )
+                    else:
+                        valid_cuts = find_valid_cuts(
+                            cake,
+                            perimeter_points,
+                            desired_cut_ratio,
+                            piece_area,
+                            self.original_ratio,
+                            acceptable_area_error=tolerance_area,
+                            acceptable_ratio_error=tolerance_ratio,
+                        )
+                    if valid_cuts:
+                        break
 
         if not valid_cuts:
             return None
