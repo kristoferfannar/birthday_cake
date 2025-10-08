@@ -553,7 +553,6 @@ class Player1(Player):
             return []
 
         AREA_TOL = 0.5  # cm^2 per spec
-        RATIO_TOL = 0.05  # 5% (kept for scoring, but area is priority)
         target_piece = total / n
 
         # ---------- PRIMARY PLAN: vertical per-piece targeting ----------
