@@ -5,7 +5,7 @@ from players.player import Player
 from src.cake import Cake
 import math
 
-import random
+import time
 
 N_SWEEP_DIRECTIONS = 180
 SWEEP_STEP_DISTANCE = 0.2 # cm
@@ -35,7 +35,11 @@ class Player4(Player):
     def get_cuts(self) -> list[tuple[Point, Point]]:
         piece: Polygon = self.cake.exterior_shape
         print(f"Player 4: Starting search for {self.children} children...")
-        return self.DFS(piece, self.children)
+        self.start_time = time.time()
+        result = self.DFS(piece, self.children)
+        self.end_time = time.time()
+        print(f"Player 4: Search complete, took {self.end_time - self.start_time} seconds.")
+        return result
 
     def DFS(self, piece: Polygon, children: int) -> list[tuple[Point, Point]]:
         print(f"DFS solving for {children} children remaining...")
