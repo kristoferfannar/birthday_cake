@@ -1,60 +1,80 @@
 from shapely.geometry import LineString, Point, Polygon
-from typing import Optional
+import math
+import random
+from statistics import stdev
+
 from players.player import Player
 from src.cake import Cake
 from shapely.ops import split
 
-
+NUMBER_ATTEMPS = 360
 
 class Player10(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None, num_angle_attempts: int = NUMBER_ATTEMPS) -> None:
         super().__init__(children, cake, cake_path)
-        # is area within 0.5 cm of target?
-        self.target_area_tolerance = 0.5 
+        # Binary search tolerance: area within 0.5 cm² of target
+        self.target_area_tolerance = 0.005
+        # Number of different angles to try (more attempts = better for complex shapes)
+        self.num_angle_attempts = num_angle_attempts
 
-    def find_line(self, x: float, peice: Polygon):
-        """Make a line through some x coordinate that gices equal areas"""
+    def find_line(self, position: float, piece: Polygon, angle: float):
+        """Make a line at a given angle through a position that cuts the piece.
         
-        # bounding box of piece, left and rightmos peices, highest and lowest
-        leftmost, lowest, rightmost, highest  = peice.bounds
+        Args:
+            position: Position along the sweep direction (0 to 1)
+            piece: The polygon piece to cut
+            angle: Angle in degrees (0-360) where 0 is right, 90 is up
+        """
+        
+        # Get bounding box of piece
+        leftmost, lowest, rightmost, highest = piece.bounds
+        width = rightmost - leftmost
         height = highest - lowest
-
-        #STILL NEEDED: Angle functionality 
-                #could be done doing some cosine/sine geometry on the bottom or top point
+        max_dim = max(width, height) * 2
         
-        # cut line much longer than actual piece
-        bottom_point = (x, lowest - height)
-        top_point = (x, highest + height)
-        cut_line = LineString([bottom_point, top_point])
+        # Convert angle to radians
+        angle_rad = math.radians(angle)
+        
+        # Calculate the perpendicular direction for the sweep
+        sweep_angle = angle_rad + math.pi / 2
+        
+        # Start from center of bounding box
+        center_x = (leftmost + rightmost) / 2
+        center_y = (lowest + highest) / 2
+        
+        # Calculate sweep offset based on position (0 to 1)
+        sweep_offset = (position - 0.5) * max_dim
+        offset_x = sweep_offset * math.cos(sweep_angle)
+        offset_y = sweep_offset * math.sin(sweep_angle)
+        
+        # Calculate point on the sweep line
+        point_x = center_x + offset_x
+        point_y = center_y + offset_y
+        
+        # Create a line at the given angle through this point
+        dx = math.cos(angle_rad) * max_dim
+        dy = math.sin(angle_rad) * max_dim
+        
+        # Create line extending in both directions
+        start_point = (point_x - dx, point_y - dy)
+        end_point = (point_x + dx, point_y + dy)
+        cut_line = LineString([start_point, end_point])
+        
         return cut_line
     
     def find_cuts(self, line: LineString, piece: Polygon): 
-        """ This function finds the ctual points where the cut line goes through cake"""
+        """ This function finds the actual points where the cut line goes through cake"""
         intersection = line.intersection(piece.boundary)
-
+        
         # What is the intersections geometry? - want it to be at least two points
-        if intersection.is_empty or intersection.geom_type == "Point":
+        if intersection.is_empty or intersection.geom_type == 'Point':
             return None
         points = []
-        if intersection.geom_type == "MultiPoint":
+        if intersection.geom_type == 'MultiPoint':
             points = list(intersection.geoms)
-        elif intersection.geom_type == "LineString":
+        elif intersection.geom_type == 'LineString':
             coords = list(intersection.coords)
             points = [Point(c) for c in coords]
-        elif intersection.geom_type == "MultiLineString":
-            # FIX: Handle when line crosses multiple times (non-convex case)
-            all_coords = []
-            for line_segment in intersection.geoms:
-                all_coords.extend(list(line_segment.coords))
-            points = [Point(c) for c in all_coords]
-        elif intersection.geom_type == "GeometryCollection":
-            # FIX: Sometimes Shapely returns a mixed collection
-            for geom in intersection.geoms:
-                if geom.geom_type == "Point":
-                    points.append(geom)
-                elif geom.geom_type == "LineString":
-                    coords = list(geom.coords)
-                    points.extend([Point(c) for c in coords])
 
         # Need at least 2 points for a valid cut
         if len(points) < 2:
@@ -63,9 +83,15 @@ class Player10(Player):
         # return the points where the sweeping line intersects with the cake
         return(points[0], points[1])
     
-    def calculate_piece_area(self, piece: Polygon, x: float):
-        """ Determines the area of the peices we cut from the left side"""
-        line = self.find_line(x, piece)
+    def calculate_piece_area(self, piece: Polygon, position: float, angle: float):
+        """ Determines the area of the pieces we cut.
+        
+        Args:
+            piece: The polygon piece to cut
+            position: Position along sweep direction (0 to 1)
+            angle: Angle in degrees for the cutting line
+        """
+        line = self.find_line(position, piece, angle)
         pieces = split(piece, line)
         
         # we should get two pieces if not, line didn't cut properly
@@ -77,38 +103,59 @@ class Player10(Player):
                 return piece.area
             else:
                 return 0.0
-        peice1, piece2 = pieces.geoms
         
-        # want the smaller peice / leftmost peice
-        if peice1.centroid.x < piece2.centroid.x:
-            return peice1.area
+        piece1, piece2 = pieces.geoms
+        
+        # Calculate which piece is "first" based on sweep direction
+        angle_rad = math.radians(angle)
+        sweep_angle = angle_rad + math.pi / 2
+        sweep_dir_x = math.cos(sweep_angle)
+        sweep_dir_y = math.sin(sweep_angle)
+        
+        # Project centroids onto sweep direction
+        centroid1 = piece1.centroid
+        centroid2 = piece2.centroid
+        
+        proj1 = centroid1.x * sweep_dir_x + centroid1.y * sweep_dir_y
+        proj2 = centroid2.x * sweep_dir_x + centroid2.y * sweep_dir_y
+        
+        # Return the area of the "first" piece in sweep direction
+        if proj1 < proj2:
+            return piece1.area
         else:
             return piece2.area
 
 
-    def binary_search(self, piece: Polygon, target_area: float):
-        """Use binary search to find x-position that cuts off target_area from the left."""
+    def binary_search(self, piece: Polygon, target_area: float, angle: float):
+        """Use binary search to find position along sweep that cuts off target_area.
         
-        left_x, _, right_x, _ = piece.bounds
-        best_x = None
+        Args:
+            piece: The polygon piece to cut
+            target_area: The target area for the cut piece
+            angle: Angle in degrees for the cutting line
+        """
+        
+        left_pos = 0.0
+        right_pos = 1.0
+        best_pos = None
         best_error = float('inf')
 
-        # try for best cut for 50 iterationd
+        # try for best cut for 50 iterations
         for iteration in range(50):  
             # try middle first 
-            mid_x = (left_x + right_x) / 2
+            mid_pos = (left_pos + right_pos) / 2
 
             # get the area of that prospective position
             cut_area = self.calculate_piece_area(piece, mid_pos, angle)
 
-            if left_area == 0:
-            # Too far left, move right
-                left_x = mid_x
+            if cut_area == 0:
+                # Too far left, move right
+                left_pos = mid_pos
                 continue
 
-            if left_area >= piece.area:
-            # Too far right, move left
-                right_x = mid_x
+            if cut_area >= piece.area:
+                # Too far right, move left
+                right_pos = mid_pos
                 continue
 
             # how far away from the target value
@@ -148,30 +195,29 @@ class Player10(Player):
         target_area = self.cake.get_area() / self.children
         cuts = []
         cake_copy = self.cake.copy()
-
-        # Lots of print for checking 
-        # go through alg for n - 1 children as we need n-1 cuts
-        for cut in range(self.children - 1):
-            print(f"cut {cut + 1} out of {self.children-1}")
+        
+        # Try to make all n-1 cuts
+        for cut_idx in range(self.children - 1):
+            current_pieces = cake_copy.get_pieces()
+            # Always cut the biggest piece
+            cutting_piece = max(current_pieces, key=lambda pc: pc.area)
             
-            current_cake_pieces = cake_copy.get_pieces()
-            # always want to cut the biggest peice as we are sweeping
-            cutting_piece = max(current_cake_pieces, key=lambda pc: pc.area)
-            print(f"cutting peice area = {cutting_piece.area}")
-            print(f"target amount = {target_area}")
-
-            # find the bext x value using binary search
-            x = self.binary_search(cutting_piece, target_area)
-
-            # if we cant find an x abort 
-            if x is None:
-                print("Failed no x")
-                break 
+            if verbose:
+                print(f"    Cut {cut_idx + 1}: Cutting piece with area {cutting_piece.area:.2f}, target piece {target_area:.2f}")
             
-            # find the points to cut given that x value 
-            cut_points = self.find_cuts(self.find_line(x, cutting_piece), cutting_piece)
-
-            # if we cant find an cut points abort     
+            # Find the best position using binary search
+            position = self.binary_search(cutting_piece, target_area, angle)
+            
+            # If we can't find a position, this angle doesn't work
+            if position is None:
+                if verbose:
+                    print(f"    Cut {cut_idx + 1}: Failed to find position")
+                return None
+            
+            # Find the actual cut points
+            cut_line = self.find_line(position, cutting_piece, angle)
+            cut_points = self.find_cuts(cut_line, cutting_piece)
+            
             if cut_points is None:
                 if verbose:
                     print(f"    Cut {cut_idx + 1}: Failed to find cut points")
@@ -456,7 +502,7 @@ class Player10(Player):
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Main cutting logic - greedy approach with random (ratio, angle) pairs"""
-        print(f"__________Cutting for {self.children} children_______")
+       # print(f"__________Cutting for {self.children} children_______")
         
         target_area = self.cake.get_area() / self.children
         target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
@@ -506,14 +552,14 @@ class Player10(Player):
             # Remove the piece from queue
             pieces_queue.pop(cutting_index)
             
-            print(f"\n=== Cut {cut_number + 1}/{self.children - 1} ===")
-            print(f"Dividing piece for {cutting_num_children} children (area: {cutting_piece.area:.2f})")
+            # print(f"\n=== Cut {cut_number + 1}/{self.children - 1} ===")
+            # print(f"Dividing piece for {cutting_num_children} children (area: {cutting_piece.area:.2f})")
             
             # Try different split ratios: split n children into (k, n-k)
             # where k ranges from 1 to floor(n/2) for balanced divide-and-conquer
             min_split = 1
             max_split = max(1, cutting_num_children // 2)
-            print(f"Exploring split ratios: 1/{cutting_num_children} to {max_split}/{cutting_num_children}")
+            # print(f"Exploring split ratios: 1/{cutting_num_children} to {max_split}/{cutting_num_children}")
             
             # Two-phase strategy:
             # Phase 1: Try all split ratios with cardinal angles + random sampling to find best ratio
@@ -604,8 +650,8 @@ class Player10(Player):
                 best_ratio_from_phase1 = min(split_ratio_scores.keys(), key=lambda k: split_ratio_scores[k])
                 phase2_attempts = num_attempts - phase1_attempts
                 
-                print(f"  Phase 1 complete. Best split ratio: {best_ratio_from_phase1}/{cutting_num_children}")
-                print(f"  Phase 2: Trying {phase2_attempts} more angles with best ratio...")
+                # print(f"  Phase 1 complete. Best split ratio: {best_ratio_from_phase1}/{cutting_num_children}")
+                # print(f"  Phase 2: Trying {phase2_attempts} more angles with best ratio...")
                 
                 remaining_children_phase2 = cutting_num_children - best_ratio_from_phase1
                 target_cut_area_phase2 = target_area * best_ratio_from_phase1
@@ -678,32 +724,32 @@ class Player10(Player):
             pieces_queue.append((large_piece, remaining_children))
             
             # Print info
-            print(f"  Best cut (tried {valid_attempts} valid attempts)")
-            print(f"  Split ratio: {split_children}/{cutting_num_children} and {remaining_children}/{cutting_num_children}, angle={used_angle:.1f}°")
-            print(f"  Piece 1 ({split_children} children): size={small_piece.area:.2f} (target={split_children*target_area:.2f}), crust_ratio={ratio1:.3f}")
-            print(f"  Piece 2 ({remaining_children} children): size={large_piece.area:.2f} (target={remaining_children*target_area:.2f}), crust_ratio={ratio2:.3f}")
+            # print(f"  Best cut (tried {valid_attempts} valid attempts)")
+            # print(f"  Split ratio: {split_children}/{cutting_num_children} and {remaining_children}/{cutting_num_children}, angle={used_angle:.1f}°")
+            # print(f"  Piece 1 ({split_children} children): size={small_piece.area:.2f} (target={split_children*target_area:.2f}), crust_ratio={ratio1:.3f}")
+            # print(f"  Piece 2 ({remaining_children} children): size={large_piece.area:.2f} (target={remaining_children*target_area:.2f}), crust_ratio={ratio2:.3f}")
             
             # Show current queue status
             total_in_queue = sum(nc for _, nc in pieces_queue)
-            print(f"  Queue: {len(pieces_queue)} pieces for {total_in_queue} total children")
+            # print(f"  Queue: {len(pieces_queue)} pieces for {total_in_queue} total children")
         
         # Final summary
-        print(f"\n{'='*50}")
-        print(f"FINAL RESULT: {len(all_cuts)}/{self.children-1} cuts completed")
+        # print(f"\n{'='*50}")
+        # print(f"FINAL RESULT: {len(all_cuts)}/{self.children-1} cuts completed")
         
         pieces = cake_copy.get_pieces()
         areas = [p.area for p in pieces]
         ratios = cake_copy.get_piece_ratios()
         
-        print(f"\nPiece areas: {[f'{a:.2f}' for a in sorted(areas)]}")
-        print(f"  Min: {min(areas):.2f}, Max: {max(areas):.2f}, Span: {max(areas) - min(areas):.2f}")
+        # print(f"\nPiece areas: {[f'{a:.2f}' for a in sorted(areas)]}")
+        # print(f"  Min: {min(areas):.2f}, Max: {max(areas):.2f}, Span: {max(areas) - min(areas):.2f}")
         
-        print(f"\nCrust ratios: {[f'{r:.3f}' for r in ratios]}")
+        # print(f"\nCrust ratios: {[f'{r:.3f}' for r in ratios]}")
         if len(ratios) > 1:
             ratio_variance = stdev(ratios)
-            print(f"  Variance: {ratio_variance:.4f}")
-            print(f"  Min: {min(ratios):.3f}, Max: {max(ratios):.3f}, Span: {max(ratios) - min(ratios):.3f}")
-        print(f"{'='*50}\n")
+            # print(f"  Variance: {ratio_variance:.4f}")
+            # print(f"  Min: {min(ratios):.3f}, Max: {max(ratios):.3f}, Span: {max(ratios) - min(ratios):.3f}")
+        # print(f"{'='*50}\n")
         
         return all_cuts
     
@@ -716,7 +762,7 @@ class Player10(Player):
         cake_copy = self.cake.copy()
         
         for cut_idx in range(self.children - 1):
-            print(f"=== Cut {cut_idx + 1}/{self.children - 1} ===")
+            print(f"Cut {cut_idx + 1}/{self.children - 1}")
             
             current_pieces = cake_copy.get_pieces()
             cutting_piece = max(current_pieces, key=lambda pc: pc.area)
@@ -761,23 +807,16 @@ class Player10(Player):
             try:
                 cake_copy.cut(from_p, to_p)
                 cuts.append((from_p, to_p))
-                print (f"cut at {x}")
-                print(f"Pieces = {len(cake_copy.get_pieces())}")
+                
                 areas = [p.area for p in cake_copy.get_pieces()]
                 size_error = abs(best_size - target_area)
                 ratio_error = abs(best_ratio - target_ratio)
-                print(f"  Best angle: {best_angle:.1f}° (tried {valid_attempts} valid angles)")
-                print(f"  Piece: size={best_size:.2f} (target={target_area:.2f}, err={size_error:.2f}), ratio={best_ratio:.3f} (target={target_ratio:.3f}, err={ratio_error:.3f})")
-                print(f"  Current areas: {[f'{a:.2f}' for a in sorted(areas)]}\n")
+                # print(f"  Best angle: {best_angle:.1f}° (tried {valid_attempts} valid angles)")
+                # print(f"  Piece: size={best_size:.2f} (target={target_area:.2f}, err={size_error:.2f}), ratio={best_ratio:.3f} (target={target_ratio:.3f}, err={ratio_error:.3f})")
+                # print(f"  Current areas: {[f'{a:.2f}' for a in sorted(areas)]}\n")
                 
             except Exception as e:
                 print(f"  Error applying cut: {e}")
                 break
-        print(f"\nFinal: Made {len(cuts)} out of {self.children-1} cuts")
-        # Check to make sure it makes it to the end of the code (will comment out)
-        if len(cake_copy.get_pieces()) == self.children:
-            areas = [p.area for p in cake_copy.get_pieces()]
-            print(f"Final piece areas: {[f'{a:.2f}' for a in sorted(areas)]}")
-            print(f"Min: {min(areas):.2f}, Max: {max(areas):.2f}, Diff: {max(areas) - min(areas):.2f}")
-
+        
         return cuts
