@@ -662,7 +662,6 @@ class Player1(Player):
             return cuts_primary
 
 
-from __future__ import annotations
 from typing import List, Tuple
 
 

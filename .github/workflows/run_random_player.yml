@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  ruff-check:
+  run_random_player:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
