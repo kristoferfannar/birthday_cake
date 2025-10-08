@@ -11,6 +11,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.geometry import Polygon as _ShPoly, MultiPolygon as _ShMulti
 from shapely.geometry import box as _box
 import shapely
+
 try:
     from shapely.validation import make_valid as _make_valid  # shapely 2.x
 except Exception:
@@ -273,7 +274,9 @@ def _area_between(poly_ccw: Poly, xa: float, xb: float) -> float:
     return _area_left_of_x(poly_ccw, xb) - _area_left_of_x(poly_ccw, xa)
 
 
-def _find_next_cut_x(poly_ccw: Poly, target_piece_area: float, xa: float, xb: float) -> float:
+def _find_next_cut_x(
+    poly_ccw: Poly, target_piece_area: float, xa: float, xb: float
+) -> float:
     """Find x in [xa, xb] such that area_between(xa, x) ~= target_piece_area."""
     lo, hi = xa, xb
     for _ in range(60):
@@ -374,7 +377,9 @@ def _slab_pieces_horizontal(poly_ccw: Poly, ys: List[float]) -> List[Poly]:
     return pieces
 
 
-def _score_set(pieces: List[Poly], Pin_global: _ShPoly, target_piece_area: float) -> tuple[float, float]:
+def _score_set(
+    pieces: List[Poly], Pin_global: _ShPoly, target_piece_area: float
+) -> tuple[float, float]:
     """
     Return (max_area_err, crust_ratio_range).
     max_area_err: max |area_i - target|
@@ -391,9 +396,9 @@ def _score_set(pieces: List[Poly], Pin_global: _ShPoly, target_piece_area: float
     return max_err, rng
 
 
-def _evaluate_plan(poly_ccw: Poly,
-                   cuts: List[tuple[Point, Point]],
-                   target_piece_area: float) -> tuple[float, float, int]:
+def _evaluate_plan(
+    poly_ccw: Poly, cuts: List[tuple[Point, Point]], target_piece_area: float
+) -> tuple[float, float, int]:
     """
     Score a plan of parallel cuts.
     Returns (max_area_err, crust_ratio_range, piece_count).
@@ -426,7 +431,9 @@ def _evaluate_plan(poly_ccw: Poly,
 
 
 # ----------------- NEW: human-style fallback -----------------
-def _human_style_fallback(poly_ccw: Poly, n: int, cake: Cake) -> list[tuple[Point, Point]]:
+def _human_style_fallback(
+    poly_ccw: Poly, n: int, cake: Cake
+) -> list[tuple[Point, Point]]:
     """
     Strategy:
       1) Try ONE big cut, vertical or horizontal, that splits kids into k and n-k (k=floor(n/2)).
@@ -581,9 +588,21 @@ class Player1(Player):
             return chords[0] if chords else None
 
         cuts_primary: list[tuple[Point, Point]] = []
-        nudges = [0.0, 0.001 * W, -0.001 * W, 0.005 * W, -0.005 * W, 0.01 * W, -0.01 * W, 0.02 * W, -0.02 * W]
+        nudges = [
+            0.0,
+            0.001 * W,
+            -0.001 * W,
+            0.005 * W,
+            -0.005 * W,
+            0.01 * W,
+            -0.01 * W,
+            0.02 * W,
+            -0.02 * W,
+        ]
         x_left = xmin
-        EPSX = 1e-6 * max(1.0, W)  # tiny step to ensure monotone progress and avoid borders
+        EPSX = 1e-6 * max(
+            1.0, W
+        )  # tiny step to ensure monotone progress and avoid borders
 
         for _i in range(1, n):
             x0 = _find_next_cut_x(poly, target_piece, x_left, xmax)
@@ -614,12 +633,16 @@ class Player1(Player):
             x_left = chosen_x
 
         # score primary
-        max_err_A, crust_rng_A, piece_count_A = _evaluate_plan(poly, cuts_primary, target_piece)
+        max_err_A, crust_rng_A, piece_count_A = _evaluate_plan(
+            poly, cuts_primary, target_piece
+        )
 
         # ---------- FALLBACK PLAN ----------
         cuts_fallback = _human_style_fallback(poly, n, self.cake)
         if cuts_fallback:
-            max_err_B, crust_rng_B, piece_count_B = _evaluate_plan(poly, cuts_fallback, target_piece)
+            max_err_B, crust_rng_B, piece_count_B = _evaluate_plan(
+                poly, cuts_fallback, target_piece
+            )
         else:
             max_err_B, crust_rng_B, piece_count_B = float("inf"), float("inf"), 0
 
