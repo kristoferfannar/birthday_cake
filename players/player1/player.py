@@ -9,6 +9,12 @@ from shapely.geometry import (
 )
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry import Polygon as _ShPoly, MultiPolygon as _ShMulti
+from shapely.geometry import box as _box
+import shapely
+try:
+    from shapely.validation import make_valid as _make_valid  # shapely 2.x
+except Exception:
+    _make_valid = None
 
 from players.player import Player
 from src.cake import Cake
@@ -118,6 +124,8 @@ def _clip_x_le(poly: Poly, t: float) -> Poly:
 
 def _area_left_of_x(poly_ccw: Poly, x: float) -> float:
     return abs(_area(_clip_x_le(poly_ccw, x)))
+
+
 # --- vertical intersections & chords ---
 def _vertical_intersections(poly: Poly, x: float) -> List[float]:
     ys: List[float] = []
@@ -255,6 +263,8 @@ def _find_cut_y(poly_ccw: Poly, target_area: float, lo: float, hi: float) -> flo
         else:
             hi = mid
     return 0.5 * (lo + hi)
+
+
 # ----------------- NEW: per-piece area targeting helpers -----------------
 def _area_between(poly_ccw: Poly, xa: float, xb: float) -> float:
     """Area of the polygon part with xa < x <= xb (assuming xa < xb)."""
@@ -289,6 +299,23 @@ def _explode_to_polys(g) -> List[_ShPoly]:
     return []
 
 
+def _clean_geom(g):
+    # robustify invalid rings/holes
+    try:
+        if _make_valid:
+            g = _make_valid(g)
+        else:
+            g = g.buffer(0)
+    except Exception:
+        g = g.buffer(0)
+    # snap-round to a fine grid to avoid free-hole glitches
+    try:
+        g = shapely.set_precision(g, 1e-9)
+    except Exception:
+        pass
+    return g
+
+
 def _crust_interior_polys(poly: Poly, crust_width: float = 1.0):
     """Return (P, P_interior, crust_area, interior_area)."""
     P = _to_shpoly(poly)
@@ -311,15 +338,20 @@ def _piece_crust_ratio(poly_piece: Poly, Pin_global: _ShPoly) -> float:
     return crust_k / Pk.area if Pk.area > 0 else 0.0
 
 
+# ---------- ROBUST slab builders: intersection with strip rectangles ----------
 def _slab_pieces_vertical(poly_ccw: Poly, xs: List[float]) -> List[Poly]:
     """Return a list of polygon pieces for vertical slabs defined by xs (monotone)."""
     pieces: List[Poly] = []
+    P = _clean_geom(_to_shpoly(poly_ccw))
+    xmin, ymin, xmax, ymax = _bbox(poly_ccw)
+    EPSG = 1e-9
     for i in range(len(xs) - 1):
         xa, xb = xs[i], xs[i + 1]
-        left = _to_shpoly(_clip_x_le(poly_ccw, xb))
-        right = _to_shpoly(_clip_x_le(poly_ccw, xa))
-        diff = left.difference(right)
-        for p in _explode_to_polys(diff):
+        if xb <= xa + EPSG:
+            continue
+        rect = _box(xa - EPSG, ymin - EPSG, xb + EPSG, ymax + EPSG)
+        slab = _clean_geom(P.intersection(rect))
+        for p in _explode_to_polys(slab):
             if p.area > 1e-10 and p.exterior:
                 pieces.append(_as_points(list(p.exterior.coords)[:-1]))
     return pieces
@@ -327,12 +359,16 @@ def _slab_pieces_vertical(poly_ccw: Poly, xs: List[float]) -> List[Poly]:
 
 def _slab_pieces_horizontal(poly_ccw: Poly, ys: List[float]) -> List[Poly]:
     pieces: List[Poly] = []
+    P = _clean_geom(_to_shpoly(poly_ccw))
+    xmin, ymin, xmax, ymax = _bbox(poly_ccw)
+    EPSG = 1e-9
     for i in range(len(ys) - 1):
         ya, yb = ys[i], ys[i + 1]
-        below = _to_shpoly(_clip_y_le(poly_ccw, yb))
-        above = _to_shpoly(_clip_y_le(poly_ccw, ya))
-        diff = below.difference(above)
-        for p in _explode_to_polys(diff):
+        if yb <= ya + EPSG:
+            continue
+        rect = _box(xmin - EPSG, ya - EPSG, xmax + EPSG, yb + EPSG)
+        slab = _clean_geom(P.intersection(rect))
+        for p in _explode_to_polys(slab):
             if p.area > 1e-10 and p.exterior:
                 pieces.append(_as_points(list(p.exterior.coords)[:-1]))
     return pieces
@@ -387,6 +423,8 @@ def _evaluate_plan(poly_ccw: Poly,
 
     max_err, crust_rng = _score_set(pieces, Pin, target_piece_area)
     return max_err, crust_rng, len(pieces)
+
+
 # ----------------- NEW: human-style fallback -----------------
 def _human_style_fallback(poly_ccw: Poly, n: int, cake: Cake) -> list[tuple[Point, Point]]:
     """
@@ -508,7 +546,7 @@ class Player1(Player):
             return []
 
         AREA_TOL = 0.5  # cm^2 per spec
-        RATIO_TOL = 0.05  # 5%
+        RATIO_TOL = 0.05  # 5% (kept for scoring, but area is priority)
         target_piece = total / n
 
         # ---------- PRIMARY PLAN: vertical per-piece targeting ----------
@@ -516,24 +554,36 @@ class Player1(Player):
             chords = _vertical_chords(poly, xx)
             if not chords:
                 return None
+
+            # prefer longer chords; drop tiny sliver chords
+            _, y_min, _, y_max = _bbox(poly)
+            H = max(1e-9, y_max - y_min)
+            MIN_SPAN = 0.005 * H  # 0.5% of height
+            chords = [(yl, yh) for (yl, yh) in chords if (yh - yl) >= MIN_SPAN]
+            if not chords:
+                return None
             chords.sort(key=lambda ab: ab[1] - ab[0], reverse=True)
+
             # engine validation if available
             for yl, yh in chords:
                 if _is_good_segment(self.cake, (xx, yl), (xx, yh)):
                     return (yl, yh)
-            # shapely containment of chord midpoint as a fallback
+
+            # shapely boundary-tolerant check
             ext = getattr(self.cake, "exterior_shape", None)
             if isinstance(ext, BaseGeometry):
                 for yl, yh in chords:
                     mid = 0.5 * (yl + yh)
-                    if ext.contains(GeoPoint(xx, mid)):
+                    if ext.covers(GeoPoint(xx, mid)):  # covers accepts boundary
                         return (yl, yh)
+
             # last resort pick longest
             return chords[0] if chords else None
 
         cuts_primary: list[tuple[Point, Point]] = []
         nudges = [0.0, 0.001 * W, -0.001 * W, 0.005 * W, -0.005 * W, 0.01 * W, -0.01 * W, 0.02 * W, -0.02 * W]
         x_left = xmin
+        EPSX = 1e-6 * max(1.0, W)  # tiny step to ensure monotone progress and avoid borders
 
         for _i in range(1, n):
             x0 = _find_next_cut_x(poly, target_piece, x_left, xmax)
@@ -542,7 +592,7 @@ class Player1(Player):
             best = None  # (area_err, xx, (yl,yh))
 
             for dx in nudges:
-                xx = max(min(x0 + dx, xmax), x_left)
+                xx = min(max(x0 + dx, x_left + EPSX), xmax - EPSX)
                 res = try_x(xx)
                 if res and _is_good_segment(self.cake, (xx, res[0]), (xx, res[1])):
                     piece_area = _area_between(poly, x_left, xx)
@@ -568,10 +618,12 @@ class Player1(Player):
 
         # ---------- FALLBACK PLAN ----------
         cuts_fallback = _human_style_fallback(poly, n, self.cake)
-        max_err_B, crust_rng_B, piece_count_B = _evaluate_plan(poly, cuts_fallback, target_piece) if cuts_fallback else (float("inf"), float("inf"), 0)
+        if cuts_fallback:
+            max_err_B, crust_rng_B, piece_count_B = _evaluate_plan(poly, cuts_fallback, target_piece)
+        else:
+            max_err_B, crust_rng_B, piece_count_B = float("inf"), float("inf"), 0
 
         # ---------- CHOOSE BEST ----------
-        # prefer lower (max_area_err, crust_ratio_range); tie → primary
         score_A = (max_err_A, crust_rng_A, piece_count_A == n)
         score_B = (max_err_B, crust_rng_B, piece_count_B == n)
 
