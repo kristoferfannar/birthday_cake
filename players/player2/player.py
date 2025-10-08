@@ -42,10 +42,10 @@ class Player2(Player):
         self.target_area = self.total_area / max(1, self.children)
         self.avg_ratio = self.cake.interior_shape.area / max(self.total_area, 1e-9)
 
-        self.beam_width = 5          # widen for better search, narrow for speed
-        self.sample_count = 64       # boundary samples per piece (in addition to vertices)
-        self.area_tol = getattr(c, "PIECE_SPAN_TOL", 0.5)   # cm^2
-        self.ratio_w = 0.10          # small weight on ratio to break ties (can set 0)
+        self.beam_width = 5  # widen for better search, narrow for speed
+        self.sample_count = 64  # boundary samples per piece (in addition to vertices)
+        self.area_tol = getattr(c, "PIECE_SPAN_TOL", 0.5)  # cm^2
+        self.ratio_w = 0.10  # small weight on ratio to break ties (can set 0)
 
     # ------------------ public ------------------
 
@@ -87,7 +87,7 @@ class Player2(Player):
 
     def _search(
         self,
-        cake: Cake,              # sandbox subcake with a single piece
+        cake: Cake,  # sandbox subcake with a single piece
         pieces_needed: int,
         best_so_far: float,
         depth: int,
@@ -189,10 +189,9 @@ class Player2(Player):
     def _realize_sequential(
         self, sim: Cake, planned: List[Tuple[Point, Point]]
     ) -> List[Tuple[Point, Point]]:
-
         realized: List[Tuple[Point, Point]] = []
 
-        for (p_raw, q_raw) in planned:
+        for p_raw, q_raw in planned:
             snapped = self._snap_to_some_piece(sim, p_raw, q_raw)
             if snapped is None:
                 # planned cut can’t be realized on current geometry; try greedy instead
@@ -255,7 +254,7 @@ class Player2(Player):
         """
         sim = original.copy()
         # replay already_realized to mirror current state
-        for (a, b) in already_realized:
+        for a, b in already_realized:
             try:
                 sim.cut(a, b)
             except Exception:
@@ -308,10 +307,12 @@ class Player2(Player):
                     return a, b
         return None
 
-    def _fill_with_any_valid(self, original: Cake, cuts: List[Tuple[Point, Point]]) -> bool:
+    def _fill_with_any_valid(
+        self, original: Cake, cuts: List[Tuple[Point, Point]]
+    ) -> bool:
         """Keep adding any valid cuts until we reach n-1."""
         sim = original.copy()
-        for (a, b) in cuts:
+        for a, b in cuts:
             try:
                 sim.cut(a, b)
             except Exception:
