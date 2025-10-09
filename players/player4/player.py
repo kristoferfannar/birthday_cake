@@ -3,53 +3,51 @@ from shapely.ops import split
 
 from players.player import Player
 from src.cake import Cake
-import math
+from . import utils
 
+import cProfile
+import math
+import pstats
 import time
 
-N_SWEEP_DIRECTIONS = 180
+N_SWEEP_DIRECTIONS = 36
 SWEEP_STEP_DISTANCE = 0.1  # cm
-N_BEST_CUT_CANDIDATES_TO_TRY = 1000000
+N_MAX_SWEEPS_PER_DIR = 100
+N_BEST_CUT_CANDIDATES_TO_TRY = 1000
 
 
 class Player4(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
-
-        # When we accept a candidate final piece, if we search strictly for pieces larger than the requirement, we will fail to find a solution since the remaining area is smaller than required. To avoid this, we introduce a small tolerance to the minimum area required for each final piece. Practically, the minimum final piece size that we can accept for a candidate solution is related to the total number of children:
-        # Let the target final size (determined by the number of children) be A, and our tolerance be e. Since our total size span tolerance is 0.5, if each candidate final piece other than the last one has area A - e, the last piece will have area A_n = A + (n - 1)e.
-        # This means that the maximum size span, when all pieces are as small as possible except the last one, is:
-        # size_span = A_n - (A - e) = (A + (n - 1)e) - (A - e) = ne
-        # The practical goal here is to keep the size span less than 0.5, so we want ne < 0.5, or e < 0.5/n.
-        self.final_piece_target_area = cake.exterior_shape.area / float(children)
-        self.final_piece_size_epsilon = 0.5 / float(children)
-        self.final_piece_min_area = (
-            self.final_piece_target_area - self.final_piece_size_epsilon
-        )
-        self.final_piece_max_area = (
-            self.final_piece_target_area + self.final_piece_size_epsilon
-        )
+        target_info = utils.get_final_piece_targets(cake, children)
+        
+        self.final_piece_min_area = target_info["min_area"]
+        self.final_piece_max_area = target_info["max_area"]
         print(
-            f"Player 4: Final piece target area: {self.final_piece_target_area}, epsilon min area: {self.final_piece_min_area}."
+            f"Player 4: Min area: {self.final_piece_min_area}, max area: {self.final_piece_max_area}."
         )
-
-        # Similarly, ratio target is 5%, meaning we can accept pieces with ratio +- 2.5%.
-        self.final_piece_target_ratio = cake.get_piece_ratio(cake.exterior_shape)
-        self.final_piece_min_ratio = self.final_piece_target_ratio - 0.025
-        self.final_piece_max_ratio = self.final_piece_target_ratio + 0.025
+        self.final_piece_target_ratio = target_info["target_ratio"]
+        self.final_piece_min_ratio = target_info["min_ratio"]
+        self.final_piece_max_ratio = target_info["max_ratio"]
         print(
-            f"Player 4: Final piece target ratio: {self.final_piece_target_ratio}, min ratio: {self.final_piece_min_ratio}, max ratio: {self.final_piece_max_ratio}."
+            f"Player 4: Target ratio: {self.final_piece_target_ratio}, min ratio: {self.final_piece_min_ratio}, max ratio: {self.final_piece_max_ratio}."
         )
+        
+        self.profiler = cProfile.Profile()
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
-        piece: Polygon = self.cake.exterior_shape
         print(f"Player 4: Starting search for {self.children} children...")
         self.start_time = time.time()
-        result = self.DFS(piece, self.children)
+        self.profiler.enable()
+        result = self.DFS(self.cake.exterior_shape, self.children)
+        self.profiler.disable()
         self.end_time = time.time()
         print(
             f"Player 4: Search complete, took {self.end_time - self.start_time} seconds."
         )
+        stats = pstats.Stats(self.profiler)
+        stats.sort_stats("cumulative")
+        stats.print_stats(20)
         return result
 
     def DFS(self, piece: Polygon, children: int) -> list[tuple[Point, Point]]:
@@ -63,7 +61,6 @@ class Player4(Player):
         if children == 1:
             return cut_sequence
 
-        # Use generator to get cuts lazily
         cuts_tried = 0
         for cut in self.generate_and_filter_cuts(piece, children):
             cuts_tried += 1
@@ -117,7 +114,7 @@ class Player4(Player):
 
         return None
 
-    def generate_and_filter_cuts(self, piece: Polygon, children: int):
+    def generate_and_filter_cuts(self, piece: Polygon, children: int) -> list:
         """
         Generator that yields valid cuts one at a time, already filtered and sorted by score.
         Sweeps from centroid outward for each angle.
@@ -128,7 +125,8 @@ class Player4(Player):
             for interior in piece.interiors:
                 coords.extend(list(interior.coords))
 
-        # For each angle, generate all cuts for that angle, then sort and yield them
+        # For each angle, generate all cuts for that angle, then sort and filter
+        candidate_cuts = []
         for angle_deg in range(0, 180, 180 // N_SWEEP_DIRECTIONS):
             angle_rad = math.radians(angle_deg)
 
@@ -152,17 +150,19 @@ class Player4(Player):
                 abs(max_proj - centroid_proj), abs(min_proj - centroid_proj)
             )
             num_sweeps = max(1, int(max_distance / SWEEP_STEP_DISTANCE) * 2 + 1)
-
-            # Collect cuts for this angle
-            angle_cuts = []
-
+            step_dist = SWEEP_STEP_DISTANCE
+            if num_sweeps > N_MAX_SWEEPS_PER_DIR:
+                num_sweeps = N_MAX_SWEEPS_PER_DIR
+                step_dist = max_distance / (num_sweeps // 2)
+                print(f"Piece too big, limiting sweeps to {N_MAX_SWEEPS_PER_DIR}.")
+            
             for i in range(num_sweeps):
                 if i == 0:
                     offset = 0
                 elif i % 2 == 1:  # odd indices go positive
-                    offset = ((i + 1) // 2) * SWEEP_STEP_DISTANCE
+                    offset = ((i + 1) // 2) * step_dist
                 else:  # even indices go negative
-                    offset = -(i // 2) * SWEEP_STEP_DISTANCE
+                    offset = -(i // 2) * step_dist
 
                 proj = centroid_proj + offset
 
@@ -221,19 +221,19 @@ class Player4(Player):
                                     or piece2_area < self.final_piece_min_area
                                 ):
                                     continue
-                                # Keep only cuts where both subpieces have acceptable ratio
-                                if (
-                                    piece1_ratio < self.final_piece_min_ratio
-                                    or piece2_ratio < self.final_piece_min_ratio
-                                ):
-                                    # print(f"Skipped cut with bad ratio: {piece1_ratio}, {piece2_ratio}.")
-                                    continue
-                                if (
-                                    piece1_ratio > self.final_piece_max_ratio
-                                    or piece2_ratio > self.final_piece_max_ratio
-                                ):
-                                    # print(f"Skipped cut with bad ratio: {piece1_ratio}, {piece2_ratio}.")
-                                    continue
+                                # # Keep only cuts where both subpieces have acceptable ratio
+                                # if (
+                                #     piece1_ratio < self.final_piece_min_ratio
+                                #     or piece2_ratio < self.final_piece_min_ratio
+                                # ):
+                                #     # print(f"Skipped cut with bad ratio: {piece1_ratio}, {piece2_ratio}.")
+                                #     continue
+                                # if (
+                                #     piece1_ratio > self.final_piece_max_ratio
+                                #     or piece2_ratio > self.final_piece_max_ratio
+                                # ):
+                                #     # print(f"Skipped cut with bad ratio: {piece1_ratio}, {piece2_ratio}.")
+                                #     continue
 
                                 # Calculate score for sorting
                                 ratio1_error = abs(
@@ -244,14 +244,12 @@ class Player4(Player):
                                 )
                                 ratio_error = ratio1_error + ratio2_error
 
-                                angle_cuts.append(((from_p, to_p), ratio_error))
+                                candidate_cuts.append(((from_p, to_p), ratio_error))
 
                             except Exception:
                                 continue
-            print(f"Sorting {len(angle_cuts)} cuts for angle {angle_deg} degrees.")
-            # Lower error is better
-            angle_cuts.sort(key=lambda x: x[1])
-            for i, (cut, score) in enumerate(angle_cuts):
-                if i >= N_BEST_CUT_CANDIDATES_TO_TRY:
-                    break
-                yield cut
+        print(f"Sorting {len(candidate_cuts)} cuts.")
+        # Lower error is better
+        candidate_cuts.sort(key=lambda x: x[1])
+        return [c[0] for c in candidate_cuts]
+            
