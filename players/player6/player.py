@@ -394,8 +394,10 @@ class Player6(Player):
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Adaptive coarse-to-fine search for near-optimal cuts with multiple angles using parallel processing."""
-
-        return self.get_cuts_divide_conquer()
+        result = self.get_cuts_divide_conquer()
+        if not result:
+            return []
+        return result
         result: list[tuple[Point, Point]] = []
 
         while len(result) < self.children - 1:
@@ -439,14 +441,14 @@ class Player6(Player):
         if n_children <= 1:
             # no more cuts to make - either no children or the child gets this piece
             # not none, because we are doing a concatenation - should always be some sort of set
-            return []
+            result: list[tuple[Point, Point]] = []
+            return result
         else:
             result: list[tuple[Point, Point]] = []
             # divide the cake into two pieces
             min_x, min_y, max_x, max_y = piece.exterior.bounds
             # Try multiple angles: horizontal (0), vertical (0.5), and some diagonal angles
             angles_to_try = np.linspace(-1, 1, 360)
-
             # Use parallel processing to evaluate all angles for the cut
             results = Parallel(n_jobs=-1)(
                 delayed(self._evaluate_angle_n)(
@@ -462,8 +464,7 @@ class Player6(Player):
             
             if not best_slice:
                 # probably another check better
-                print("returning none on bad current slice")
-                return None
+                return result
             
             pieces = self.virtual_cut(piece, LineString(best_slice.points)).polygons
             pieces.sort(key = lambda piece: piece.area)
@@ -473,10 +474,6 @@ class Player6(Player):
             
             large_result = self.divide_and_conquer(pieces[1], ceil(n_children / 2))
             small_result = self.divide_and_conquer(pieces[0], floor(n_children / 2))
-            
-            if not large_result or not small_result:
-                print("returning none on bad smaller slices")
-                return None
             
             return result + small_result + large_result
         
@@ -583,9 +580,9 @@ class Player6(Player):
         #polygons.sort(key = lambda piece: piece.area)
         if len(polygons) != 2:
             return (float("inf"), float("inf"))
-        areas = [polygon.area for polygon in polygons].sort()
-        small_area_score = abs(areas[0]/floor(n_children/2) - self.target_area)
-        large_area_score = abs(areas[1]/ceil(n_children/2) - self.target_area)
+        areas = [polygon.area for polygon in polygons]
+        small_area_score = abs(min(areas)/floor(n_children/2) - self.target_area)
+        large_area_score = abs(max(areas)/ceil(n_children/2) - self.target_area)
         #area_scores = [abs(polygon.area - self.target_area) for polygon in polygons]
         area_scores = [small_area_score, large_area_score]
         ratio_scores = [
