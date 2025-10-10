@@ -607,7 +607,9 @@ class Player1(Player):
             x0 = _find_next_cut_x(poly, target_piece, x_left, xmax)
             chosen_x: Optional[float] = None
             chosen: Optional[Tuple[float, float]] = None
-            best: Optional[Tuple[float, float, Tuple[float, float]]] = None  # (err, xx, chord)
+            best: Optional[Tuple[float, float, Tuple[float, float]]] = (
+                None  # (err, xx, chord)
+            )
 
             for dx in nudges:
                 xx = min(max(x0 + dx, x_left + EPSX), xmax - EPSX)
