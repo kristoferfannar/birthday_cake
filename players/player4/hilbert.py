@@ -1,6 +1,7 @@
 from shapely.geometry import LineString, Point
 
-def get_hilbert_cuts(self) -> list[tuple[Point,Point]]:
+
+def get_hilbert_cuts() -> list[tuple[Point, Point]]:
     cut_lines = [
         LineString([(5, 0), (5, 5)]),
         LineString([(10, 0), (10, 5)]),
@@ -31,7 +32,7 @@ def get_hilbert_cuts(self) -> list[tuple[Point,Point]]:
         LineString([(20, 10), (25, 10)]),
         LineString([(20, 5), (25, 5)]),
         LineString([(25, 0), (25, 5)]),
-        LineString([(30, 0), (30, 5)])
+        LineString([(30, 0), (30, 5)]),
     ]
     cuts = []
     for line in cut_lines:

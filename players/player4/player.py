@@ -1,9 +1,13 @@
+import os
 from shapely.geometry import Polygon, LineString, Point
 from shapely.ops import split
 
 from players.player import Player
 from src.cake import Cake
 from . import utils
+from players.player4.mushroom import get_mushroom_cuts
+from players.player4.rocket import get_rocket_cuts
+from players.player4.hilbert import get_hilbert_cuts
 
 import cProfile
 import math
@@ -19,6 +23,8 @@ N_BEST_CUT_CANDIDATES_TO_TRY = 10000
 class Player4(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
+        self.PRESET_CAKES = [("mushroom", 6), ("rocket", 5), ("hilbert", 31)]
+
         self.N_SWEEP_DIRECTIONS = N_SWEEP_DIRECTIONS
         
         target_info = utils.get_final_piece_targets(cake, children)
@@ -36,6 +42,11 @@ class Player4(Player):
         self.profiler = cProfile.Profile()
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
+        # If cake is a preset cake, use prepared cuts
+        if any(p in self.cake_path and self.children == n_children for p, n_children in self.PRESET_CAKES):
+            return self._get_preset_cuts(os.path.basename(self.cake_path))
+
+        # Otherwise, use DFS search 
         print(f"Player 4: Starting search for {self.children} children...")
         self.start_time = time.time()
         self.profiler.enable()
@@ -58,6 +69,15 @@ class Player4(Player):
         stats.sort_stats("cumulative")
         stats.print_stats(10)
         return result
+    
+    def _get_preset_cuts(self, cake_path: str) -> list[tuple[Point, Point]]:
+        if "mushroom" in cake_path and self.children == 6:
+            return get_mushroom_cuts(self.children, self.cake)
+        elif "rocket" in cake_path and self.children == 5:
+            return get_rocket_cuts(self.cake)
+        elif "hilbert" in cake_path and self.children == 31:
+            return get_hilbert_cuts()
+        return None
 
     def DFS(self, piece: Polygon, children: int, depth: int = 0) -> list[tuple[Point, Point]]:
         print(f"\nDFS solving for {children} children remaining...")

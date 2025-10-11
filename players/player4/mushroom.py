@@ -4,9 +4,10 @@ from shapely.ops import linemerge, split
 from src.cake import Cake
 import src.constants as c
 
+
 def get_mushroom_cuts(children, cake) -> list[tuple[Point, Point]]:
     cuts: list[tuple[Point, Point]] = []
-    assert children == 6, "Pre-set mushroom cake can only serve 6 children!"  
+    assert children == 6, "Pre-set mushroom cake can only serve 6 children!"
 
     ideal_area_per_piece: float = cake.get_area() / children
     min_area_per_piece: float = ideal_area_per_piece - (c.PIECE_SPAN_TOL * 0.5)
@@ -33,7 +34,7 @@ def get_mushroom_cuts(children, cake) -> list[tuple[Point, Point]]:
         current_crust = linemerge(cake_crust.intersection(piece.boundary))
         if not center_upper_p.equals(Point(current_crust.coords[0])):
             current_crust = LineString(list(current_crust.coords)[::-1])
-        
+
         crust_len_per_piece = current_crust.length / cuts_per_halve
         current_piece = piece
         for cut in range(1, cuts_per_halve):
@@ -47,8 +48,10 @@ def get_mushroom_cuts(children, cake) -> list[tuple[Point, Point]]:
                 for _ in range(max_steps):
                     test_cut = LineString([to_p, from_p])
                     split_pieces = split(piece, test_cut)
-                    top_piece, bottom_piece = sorted(split_pieces.geoms, key=lambda p: p.centroid.y)
-                    
+                    top_piece, bottom_piece = sorted(
+                        split_pieces.geoms, key=lambda p: p.centroid.y
+                    )
+
                     # Check if area of top piece is within bounds and adjust to_p accordingly
                     if min_area_per_piece <= top_piece.area <= max_area_per_piece:
                         return to_p, top_piece, bottom_piece
@@ -65,6 +68,7 @@ def get_mushroom_cuts(children, cake) -> list[tuple[Point, Point]]:
                 current_piece = bottom_piece
 
     return cuts
+
 
 def _get_bounds(current_cake: Polygon) -> tuple[float, float, float, float]:
     cake_boundary_points = (

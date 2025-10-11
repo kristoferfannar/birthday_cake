@@ -1,13 +1,11 @@
-from shapely.geometry import Polygon, LineString, Point
+from shapely.geometry import LineString, Point
 from shapely.ops import split
 
 
-def get_rocket_cuts(self) -> list[tuple[Point, Point]]:
-
-
-    poly = self.cake.exterior_shape
+def get_rocket_cuts(cake) -> list[tuple[Point, Point]]:
+    poly = cake.exterior_shape
     total_area = poly.area
-    target_area_per_band = total_area / 3  # 3 horizontal layers 
+    target_area_per_band = total_area / 3  # 3 horizontal layers
 
     # compute area below a horizontal line
     def area_below_y(y):
@@ -64,10 +62,10 @@ def get_rocket_cuts(self) -> list[tuple[Point, Point]]:
 
     # total 5 cuts (1 vertical + 2 left halves + 2 right halves)
     cuts = [
-        vertical_cut,                  # main vertical
-        (h1_left, v_cross1),           # lower-left horizontal
-        (v_cross1, h1_right),          # lower-right horizontal
-        (h2_left, v_cross2),           # upper-left horizontal
-        (v_cross2, h2_right)           # upper-right horizontal
+        vertical_cut,  # main vertical
+        (h1_left, v_cross1),  # lower-left horizontal
+        (v_cross1, h1_right),  # lower-right horizontal
+        (h2_left, v_cross2),  # upper-left horizontal
+        (v_cross2, h2_right),  # upper-right horizontal
     ]
     return cuts
