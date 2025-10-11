@@ -23,7 +23,7 @@ N_BEST_CUT_CANDIDATES_TO_TRY = 10000
 class Player4(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
-        self.PRESET_CAKES = [("mushroom", 6), ("rocket", 5), ("hilbert", 31)]
+        self.PRESET_CAKES = [("mushroom", 6), ("rocket", 6), ("hilbert", 31)]
 
         self.N_SWEEP_DIRECTIONS = N_SWEEP_DIRECTIONS
         
@@ -71,9 +71,10 @@ class Player4(Player):
         return result
     
     def _get_preset_cuts(self, cake_path: str) -> list[tuple[Point, Point]]:
+        print(f"Using preset cuts for {cake_path}.")
         if "mushroom" in cake_path and self.children == 6:
             return get_mushroom_cuts(self.children, self.cake)
-        elif "rocket" in cake_path and self.children == 5:
+        elif "rocket" in cake_path and self.children == 6:
             return get_rocket_cuts(self.cake)
         elif "hilbert" in cake_path and self.children == 31:
             return get_hilbert_cuts()
