@@ -298,7 +298,7 @@ class Player6(Player):
         intersections = intersection(line, piece)
         if intersections.is_empty:
             return None
-        
+
         results: List[CutResult] = []
 
         if isinstance(intersections, MultiLineString):
@@ -307,7 +307,6 @@ class Player6(Player):
                 cut_res = self.virtual_cut(piece, seg)
                 if cut_res:
                     results.append(cut_res)
-
 
         if isinstance(intersections, LineString):
             # line cuts at one position
@@ -417,11 +416,15 @@ class Player6(Player):
     def get_max_piece(self, pieces: list[Polygon]) -> Polygon:
         """Return largest polygon from list"""
         return max(pieces, key=lambda piece: piece.area)
-    
+
     def get_cuts_divide_conquer(self) -> list[tuple[Point, Point]]:
-        return self.divide_and_conquer(self.get_max_piece(self.cake.exterior_pieces), self.children)
-    
-    def divide_and_conquer(self, piece: Polygon, n_children: int) -> list[tuple[Point, Point]]:
+        return self.divide_and_conquer(
+            self.get_max_piece(self.cake.exterior_pieces), self.children
+        )
+
+    def divide_and_conquer(
+        self, piece: Polygon, n_children: int
+    ) -> list[tuple[Point, Point]]:
         if n_children <= 1:
             # no more cuts to make - either no children or the child gets this piece
             # not none, because we are doing a concatenation - should always be some sort of set
@@ -445,26 +448,25 @@ class Player6(Player):
             for cut, score in results:
                 if cut is not None and score < best_score and len(cut.polygons) == 2:
                     best_score, best_slice = score, cut
-            
+
             if not best_slice:
                 # probably another check better
                 return result
-            
 
             cut_res = self.virtual_cut(piece, LineString(best_slice.points))
 
             if not cut_res:
                 return result
-            
+
             pieces = cut_res.polygons
-            pieces.sort(key = lambda piece: piece.area)
-            
+            pieces.sort(key=lambda piece: piece.area)
+
             result.append(best_slice.points)
             self.cake.cut(best_slice.points[0], best_slice.points[1])
             large_result = self.divide_and_conquer(pieces[1], ceil(n_children / 2))
             small_result = self.divide_and_conquer(pieces[0], floor(n_children / 2))
             return result + small_result + large_result
-        
+
     def _evaluate_angle_n(
         self,
         angle: float,
@@ -488,7 +490,7 @@ class Player6(Player):
             n_children,
         )
         return cut, score
-    
+
     def ternary_search_cut_n(
         self,
         try_fn,
@@ -531,8 +533,7 @@ class Player6(Player):
                 left = mid1
 
         return best_cut, best_score
-    
-    
+
     def positions_best_cut_n(
         self,
         try_fn,
@@ -558,21 +559,20 @@ class Player6(Player):
 
         # NOTE: catch later if invalid
         return best_cut, best_score
-    
-    
+
     def score_cut_n(self, cut: CutResult, n_children: int) -> tuple[float, float]:
         """Calculate the score of a cut with stddev from target area and cake to crust ratio"""
         if cut is None:
             return (float("inf"), float("inf"))
 
         polygons = self.current_polygon(cut)
-        #polygons.sort(key = lambda piece: piece.area)
+        # polygons.sort(key = lambda piece: piece.area)
         if len(polygons) != 2:
             return (float("inf"), float("inf"))
         areas = [polygon.area for polygon in polygons]
-        small_area_score = abs(min(areas)/floor(n_children/2) - self.target_area)
-        large_area_score = abs(max(areas)/ceil(n_children/2) - self.target_area)
-        #area_scores = [abs(polygon.area - self.target_area) for polygon in polygons]
+        small_area_score = abs(min(areas) / floor(n_children / 2) - self.target_area)
+        large_area_score = abs(max(areas) / ceil(n_children / 2) - self.target_area)
+        # area_scores = [abs(polygon.area - self.target_area) for polygon in polygons]
         area_scores = [small_area_score, large_area_score]
         ratio_scores = [
             abs(self.get_piece_ratio(polygon) - self.target_ratio)
@@ -582,7 +582,7 @@ class Player6(Player):
         area_score = max(area_scores)
         # always looking at largest ratio - since we check everything for ternary search?
         ratio_score = max(ratio_scores)
-        #ratio_score = ratio_scores[area_scores.index(min(area_scores))]
+        # ratio_score = ratio_scores[area_scores.index(min(area_scores))]
 
         # If difference from target area < 0.125, treat it as equal → rely on ratio
         if area_score <= 0.25:
