@@ -178,9 +178,6 @@ class Player6(Player):
 
     def current_polygon(self, cut: CutResult) -> set[Polygon]:
         """Returns the two polygons involved in the cut based on their shared points"""
-        # cut.polygons should already contain the polygons created by that specific cut so by default should be current?
-        return set(cut.polygons)
-    
         cut_points, polygons = cut.points, cut.polygons
         res: set[Polygon] = set()
         for polygon in polygons:
@@ -257,10 +254,10 @@ class Player6(Player):
         min_y: float,
         max_y: float,
         piece: Polygon,
-        epsilon: float = 0.005,
+        epsilon: float = 0.01,
     ) -> tuple[CutResult, tuple[float, float]]:
         """Ternary search for the optimal cut positio based on the slicing function to try, returns best cut and its score"""
-        left, right = 0.05, 0.95
+        left, right = 0.01, 0.99
         best_cut, best_score = None, (float("inf"), float("inf"))
         iterations = 0
         # NOTE: tune later
@@ -380,17 +377,7 @@ class Player6(Player):
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Adaptive coarse-to-fine search for near-optimal cuts with multiple angles using parallel processing."""
-        lookahead = 0
-        # NOTE: tune later
-        if self.children <= 4:
-            # look two cuts ahead with smaller groups
-            lookahead = 2
-        elif self.children <= 11:
-            # look only one cut ahead for medium sized
-            lookahead = 1
-        # don't look ahead beyond 11 kids for now for time complexity
-
-        result = self.get_cuts_divide_conquer(lookahead)
+        result = self.get_cuts_divide_conquer()
         if not result:
             return []
         return result
@@ -430,16 +417,13 @@ class Player6(Player):
         """Return largest polygon from list"""
         return max(pieces, key=lambda piece: piece.area)
 
-    def get_cuts_divide_conquer(self, lookahead_depth: int = 1) -> list[tuple[Point, Point]]:
+    def get_cuts_divide_conquer(self) -> list[tuple[Point, Point]]:
         return self.divide_and_conquer(
-            self.get_max_piece(self.cake.exterior_pieces), self.children, lookahead_depth
+            self.get_max_piece(self.cake.exterior_pieces), self.children
         )
 
     def divide_and_conquer(
-        self, 
-        piece: Polygon, 
-        n_children: int,
-        lookahead_depth: int = 1
+        self, piece: Polygon, n_children: int
     ) -> list[tuple[Point, Point]]:
         if n_children <= 1:
             # no more cuts to make - either no children or the child gets this piece
@@ -451,17 +435,16 @@ class Player6(Player):
             # divide the cake into two pieces
             min_x, min_y, max_x, max_y = piece.exterior.bounds
             # Try multiple angles: horizontal (0), vertical (0.5), and some diagonal angles
-            #angles_to_try = np.linspace(-1, 1, 360)
-            angles_to_try = np.linspace(0, 1, 180)
+            angles_to_try = np.linspace(-1, 1, 360)
             # Use parallel processing to evaluate all angles for the cut
-            results: List[tuple[CutResult, tuple[float, float, float]]] = Parallel(n_jobs=-1)(
+            results: List[tuple[CutResult, tuple[float, float]]] = Parallel(n_jobs=-1)(
                 delayed(self._evaluate_angle_n)(
-                    angle, piece, min_x, max_x, min_y, max_y, n_children, lookahead_depth
+                    angle, piece, min_x, max_x, min_y, max_y, n_children
                 )
                 for angle in angles_to_try
             )
             # Find the best result from all parallel evaluations
-            best_slice, best_score = None, (float("inf"), float("inf"), float("inf"))
+            best_slice, best_score = None, (float("inf"), float("inf"))
             for cut, score in results:
                 if cut is not None and score < best_score and len(cut.polygons) == 2:
                     best_score, best_slice = score, cut
@@ -480,10 +463,8 @@ class Player6(Player):
 
             result.append(best_slice.points)
             self.cake.cut(best_slice.points[0], best_slice.points[1])
-            # reduce computation as we go deeper
-            lookahead_depth = max(0, lookahead_depth - 1)
-            large_result = self.divide_and_conquer(pieces[1], ceil(n_children / 2), lookahead_depth)
-            small_result = self.divide_and_conquer(pieces[0], floor(n_children / 2), lookahead_depth)
+            large_result = self.divide_and_conquer(pieces[1], ceil(n_children / 2))
+            small_result = self.divide_and_conquer(pieces[0], floor(n_children / 2))
             return result + small_result + large_result
 
     def _evaluate_angle_n(
@@ -495,8 +476,7 @@ class Player6(Player):
         min_y: float,
         max_y: float,
         n_children: int,
-        lookahead_depth: int = 1
-    ) -> tuple[CutResult, tuple[float, float, float]]:
+    ) -> tuple[CutResult, tuple[float, float]]:
         """Evaluate a single angle using ternary search - helper for parallel processing"""
         cut, score = self.ternary_search_cut_n(
             lambda pos, min_x, max_x, min_y, max_y, piece: self._try_angle_slice(
@@ -508,7 +488,6 @@ class Player6(Player):
             max_y,
             largest_piece,
             n_children,
-            lookahead_depth
         )
         return cut, score
 
@@ -521,12 +500,11 @@ class Player6(Player):
         max_y: float,
         piece: Polygon,
         n_children: int,
-        lookahead_depth: int = 1,
-        epsilon: float = 0.005,
-    ) -> tuple[CutResult, tuple[float, float, float]]:
+        epsilon: float = 0.01,
+    ) -> tuple[CutResult, tuple[float, float]]:
         """Ternary search for the optimal cut positio based on the slicing function to try, returns best cut and its score"""
-        left, right = 0.05, 0.95
-        best_cut, best_score = None, (float("inf"), float("inf"), float("inf"))
+        left, right = 0.01, 0.99
+        best_cut, best_score = None, (float("inf"), float("inf"))
         iterations = 0
         # NOTE: tune later
         max_iterations = 20
@@ -538,10 +516,10 @@ class Player6(Player):
             mid2 = right - (right - left) / 3
 
             cut1, score1 = self.positions_best_cut_n(
-                try_fn, mid1, min_x, max_x, min_y, max_y, piece, n_children, lookahead_depth
+                try_fn, mid1, min_x, max_x, min_y, max_y, piece, n_children
             )
             cut2, score2 = self.positions_best_cut_n(
-                try_fn, mid2, min_x, max_x, min_y, max_y, piece, n_children, lookahead_depth
+                try_fn, mid2, min_x, max_x, min_y, max_y, piece, n_children
             )
 
             if score1 < best_score:
@@ -566,16 +544,15 @@ class Player6(Player):
         max_y: float,
         piece: Polygon,
         n_children: int,
-        lookahead_depth: int = 1
-    ) -> tuple[CutResult, tuple[float, float, float]]:
+    ) -> tuple[CutResult, tuple[float, float]]:
         """Calculates the best cut and score based on all possible cuts at a given position"""
         cuts = try_fn(position, min_x, max_x, min_y, max_y, piece)
         best_cut = None
-        best_score = (float("inf"), float("inf"), float("inf"))
+        best_score = (float("inf"), float("inf"))
         if cuts:
             for cut in cuts:
                 if cut is not None:
-                    score = self.score_cut_n(cut, n_children, lookahead_depth)
+                    score = self.score_cut_n(cut, n_children)
                     # NOTE: these are tuples we need to check both else area dominates
                     if score < best_score:
                         best_score, best_cut = score, cut
@@ -583,18 +560,15 @@ class Player6(Player):
         # NOTE: catch later if invalid
         return best_cut, best_score
 
-    def score_cut_n(self, cut: CutResult, n_children: int, lookahead_depth: int = 1) -> tuple[float, float, float]:
+    def score_cut_n(self, cut: CutResult, n_children: int) -> tuple[float, float]:
         """Calculate the score of a cut with stddev from target area and cake to crust ratio"""
         if cut is None:
-            return (float("inf"), float("inf"), float("inf"))
+            return (float("inf"), float("inf"))
 
-        polygons_set = self.current_polygon(cut)
+        polygons = self.current_polygon(cut)
         # polygons.sort(key = lambda piece: piece.area)
-        if len(polygons_set) != 2:
-            return (float("inf"), float("inf"), float("inf"))
-        
-        polygons = list(polygons_set)
-
+        if len(polygons) != 2:
+            return (float("inf"), float("inf"))
         areas = [polygon.area for polygon in polygons]
         small_area_score = abs(min(areas) / floor(n_children / 2) - self.target_area)
         large_area_score = abs(max(areas) / ceil(n_children / 2) - self.target_area)
@@ -616,106 +590,5 @@ class Player6(Player):
         if ratio_score <= 0.05:
             ratio_score = 0.0
 
-        # try to predict future based on how we decide to cut
-        calculated_future_score = 0.0
-        if lookahead_depth > 0 and n_children > 2:
-            future1 = self.estimate_piece_cuttability(polygons[0], floor(n_children / 2), lookahead_depth)
-            future2 = self.estimate_piece_cuttability(polygons[1], ceil(n_children / 2), lookahead_depth)
-            
-            # always looking at largest area - we need both pieces to be cuttable
-            calculated_future_score = max(future1, future2)
-            # normalize future score to be comparable to other scores
-            calculated_future_score *= 0.1 
-
         # adding line length as the last factor as after dividing area equally we would love to have more interior !
-        #return (area_score, ratio_score, LineString(cut.points).length)
-
-        # use line length as a small penalty(shorter cuts are better)
-        line_length = LineString(cut.points).length
-        # normalize line length penalty
-        bounds = polygons[0].bounds
-        # pythag. theorem to get diagonal length of the bounding box
-        max_possible_length = ((bounds[2]-bounds[0])**2 + (bounds[3]-bounds[1])**2)**0.5
-        # use 0.01 to make line length an arbitrary consideration
-        length_penalty = 0.01 * (line_length / max_possible_length) 
-        
-        return (area_score + length_penalty, ratio_score + length_penalty, calculated_future_score)
-    
-    def estimate_piece_cuttability(
-        self, 
-        piece: Polygon, 
-        n_children: int,
-        lookahead_depth: int = 1
-    ) -> float:
-        """ 
-        Estimate how difficult it is to cut a piece based on number of children 
-        Cuttability based on shape complexity(e.g. parallelogram vs. minecraft sword) + stdev ratio diff
-        """
-        # base case = 0 difficulty 
-        if n_children <= 1:
-            return 0.0
-        
-        perimeter = piece.exterior.length
-        # calculate based on how much area can hold(isoperimetric ineq.)
-        cuttableness = (4 * np.pi * piece.area) / (perimeter ** 2) if perimeter > 0 else 0
-        
-        # check if piece is too small to divide up well
-        target_piece_area = piece.area / n_children
-        if target_piece_area < c.MIN_PIECE_AREA * 1.5:
-            # too small penalize penalize
-            return 1000.0
-        
-        # get interior to crust ratio
-        if piece.intersects(self.cake.interior_shape):
-            interior = piece.intersection(self.cake.interior_shape)
-            piece_interior_ratio = interior.area / piece.area if not interior.is_empty else 0
-        else:
-            piece_interior_ratio = 0
-        
-        ratio_diff = abs(piece_interior_ratio - self.target_ratio)
-        # NOTE: tune later
-        # shape complexity = 10 points of difficulty; ratio difference = 20 points(change later if our ratios become better)
-        base_score = (1 - cuttableness) * 10 + ratio_diff * 20
-        
-        # test potential cuts
-        if lookahead_depth > 0:
-            future_score = self._sample_future_cuts(piece, n_children, lookahead_depth)
-            # NOTE: tune this later based on how much looking ahead actually affects our score
-            base_score += future_score * 0.5  
-        
-        return base_score
-    
-    def _sample_future_cuts(
-        self, 
-        piece: Polygon, 
-        n_children: int, 
-        lookahead_depth: int
-    ) -> float:
-        """ Test potential cuts and recursively evaluate resulting pieces from potential cuts """
-        min_x, min_y, max_x, max_y = piece.bounds
-        
-        # Try multiple angles: horizontal (0), vertical (0.5), and some diagonal angles
-        angles_to_try = np.linspace(0, 1, 8, endpoint=False)
-        # NOTE: tune this later
-        # for now just doing 3 positions per angle to reduce time complex.
-        angle_positions = [0.33, 0.5, 0.67]  
-        best_future_scores = []
-        
-        for angle in angles_to_try:
-            for position in angle_positions:
-                line = self.generate_cut_line(piece, angle, position)
-                cut_result = self.virtual_cut(piece, line)
-                
-                # verify 2 polygons -> let's try cutting and see how hard
-                if cut_result and len(cut_result.polygons) == 2:
-                    piece1, piece2 = cut_result.polygons
-                    
-                    piece1_cutting_difficulty = self.estimate_piece_cuttability(piece1, floor(n_children / 2), lookahead_depth - 1)
-                    piece2_cutting_difficulty = self.estimate_piece_cuttability(piece2, ceil(n_children / 2), lookahead_depth - 1)
-                    
-                    # jot down the harder piece to cut(both pieces have to be cuttable so we're looking for really hard ones)
-                    future_score = max(piece1_cutting_difficulty, piece2_cutting_difficulty)
-                    best_future_scores.append(future_score)
-        
-        # min = least future difficulty we found
-        return min(best_future_scores) if best_future_scores else 1000.0
+        return (area_score, ratio_score, LineString(cut.points).length)
