@@ -5,10 +5,9 @@ from shapely.geometry import Polygon, LineString, Point
 from shapely import MultiLineString, intersection
 from shapely.ops import split
 from typing import cast, List, Optional
-from math import hypot, pi, cos, tan, isclose
+from math import hypot, pi, cos, tan, isclose, floor, ceil
 import numpy as np
 from joblib import Parallel, delayed
-
 import src.constants as c
 
 
@@ -63,30 +62,6 @@ class Player6(Player):
         ]
 
         return touched_pieces
-
-    def get_scaled_vertex_points(self):
-        """Scales vertices for rendering cake"""
-        x_offset, y_offset = self.get_offsets()
-        xys = self.get_boundary_points()
-
-        ext_points = []
-        for xy in xys:
-            x, y = xy.coords[0]
-            ext_points.extend(
-                [x * c.CAKE_SCALE + x_offset, y * c.CAKE_SCALE + y_offset]
-            )
-
-        int_xys = self.get_interior_points()
-
-        int_points = []
-        for int_xy in int_xys:
-            ip = []
-            for xy in int_xy:
-                x, y = xy.coords[0]
-                ip.extend([x * c.CAKE_SCALE + x_offset, y * c.CAKE_SCALE + y_offset])
-            int_points.append(ip)
-
-        return ext_points, int_points
 
     def point_lies_on_piece_boundary(self, p: Point, piece: Polygon):
         """Checks whether a point is within tolerance of a piece's boundary"""
@@ -158,7 +133,7 @@ class Player6(Player):
 
         return True, "valid"
 
-    def virtual_cut(self, piece: Polygon, cut: LineString) -> CutResult:
+    def virtual_cut(self, piece: Polygon, cut: LineString) -> CutResult | None:
         """
         Make a virtual cut over our existing cake(piece)
         """
@@ -190,7 +165,7 @@ class Player6(Player):
 
         line = LineString([a, b])
         # ensure that the line extends beyond the piece
-        # line = extend_line(line)
+        line = extend_line(line)
         # cut the cake
         split_piece = split(piece, line)
         split_pieces: list[Polygon] = [
@@ -199,7 +174,6 @@ class Player6(Player):
         # point1, point2 = line.coords
         # output = CutResult(polygons=split_pieces, points=(Point(point1), Point(point2)))
         output = CutResult(polygons=split_pieces, points=(a, b))
-
         return output
 
     def current_polygon(self, cut: CutResult) -> set[Polygon]:
@@ -266,7 +240,7 @@ class Player6(Player):
                 if cut is not None:
                     score = self.score_cut(cut)
                     # NOTE: these are tuples we need to check both else area dominates
-                    if score[0] < best_score[0] and score[1] < best_score[1]:
+                    if score < best_score:
                         best_score, best_cut = score, cut
 
         # NOTE: catch later if invalid
@@ -302,12 +276,12 @@ class Player6(Player):
                 try_fn, mid2, min_x, max_x, min_y, max_y, piece
             )
 
-            if score1[0] < best_score[0]:
+            if score1 < best_score:
                 best_cut, best_score = cut1, score1
-            if score2[0] < best_score[0]:
+            if score2 < best_score:
                 best_cut, best_score = cut2, score2
 
-            if score1[0] < score2[0]:
+            if score1 < score2:
                 right = mid2
             else:
                 left = mid1
@@ -325,13 +299,22 @@ class Player6(Player):
         if intersections.is_empty:
             return None
 
+        results: List[CutResult] = []
+
         if isinstance(intersections, MultiLineString):
-            return [self.virtual_cut(piece, seg) for seg in intersections.geoms]
+            # line cuts at multiple positions
+            for seg in intersections.geoms:
+                cut_res = self.virtual_cut(piece, seg)
+                if cut_res:
+                    results.append(cut_res)
 
         if isinstance(intersections, LineString):
-            return [self.virtual_cut(piece, intersections)]
+            # line cuts at one position
+            cut_res = self.virtual_cut(piece, intersections)
+            if cut_res:
+                results.append(cut_res)
 
-        return None
+        return results
 
     def generate_cut_line(
         self, piece: Polygon, angle: float, frac: float
@@ -394,6 +377,10 @@ class Player6(Player):
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Adaptive coarse-to-fine search for near-optimal cuts with multiple angles using parallel processing."""
+        result = self.get_cuts_divide_conquer()
+        if not result:
+            return []
+        return result
         result: list[tuple[Point, Point]] = []
 
         while len(result) < self.children - 1:
@@ -429,3 +416,179 @@ class Player6(Player):
     def get_max_piece(self, pieces: list[Polygon]) -> Polygon:
         """Return largest polygon from list"""
         return max(pieces, key=lambda piece: piece.area)
+
+    def get_cuts_divide_conquer(self) -> list[tuple[Point, Point]]:
+        return self.divide_and_conquer(
+            self.get_max_piece(self.cake.exterior_pieces), self.children
+        )
+
+    def divide_and_conquer(
+        self, piece: Polygon, n_children: int
+    ) -> list[tuple[Point, Point]]:
+        if n_children <= 1:
+            # no more cuts to make - either no children or the child gets this piece
+            # not none, because we are doing a concatenation - should always be some sort of set
+            result: list[tuple[Point, Point]] = []
+            return result
+        else:
+            result: list[tuple[Point, Point]] = []
+            # divide the cake into two pieces
+            min_x, min_y, max_x, max_y = piece.exterior.bounds
+            # Try multiple angles: horizontal (0), vertical (0.5), and some diagonal angles
+            angles_to_try = np.linspace(-1, 1, 360)
+            # Use parallel processing to evaluate all angles for the cut
+            results: List[tuple[CutResult, tuple[float, float]]] = Parallel(n_jobs=-1)(
+                delayed(self._evaluate_angle_n)(
+                    angle, piece, min_x, max_x, min_y, max_y, n_children
+                )
+                for angle in angles_to_try
+            )
+            # Find the best result from all parallel evaluations
+            best_slice, best_score = None, (float("inf"), float("inf"))
+            for cut, score in results:
+                if cut is not None and score < best_score and len(cut.polygons) == 2:
+                    best_score, best_slice = score, cut
+
+            if not best_slice:
+                # probably another check better
+                return result
+
+            cut_res = self.virtual_cut(piece, LineString(best_slice.points))
+
+            if not cut_res:
+                return result
+
+            pieces = cut_res.polygons
+            pieces.sort(key=lambda piece: piece.area)
+
+            result.append(best_slice.points)
+            self.cake.cut(best_slice.points[0], best_slice.points[1])
+            large_result = self.divide_and_conquer(pieces[1], ceil(n_children / 2))
+            small_result = self.divide_and_conquer(pieces[0], floor(n_children / 2))
+            return result + small_result + large_result
+
+    def _evaluate_angle_n(
+        self,
+        angle: float,
+        largest_piece: Polygon,
+        min_x: float,
+        max_x: float,
+        min_y: float,
+        max_y: float,
+        n_children: int,
+    ) -> tuple[CutResult, tuple[float, float]]:
+        """Evaluate a single angle using ternary search - helper for parallel processing"""
+        cut, score = self.ternary_search_cut_n(
+            lambda pos, min_x, max_x, min_y, max_y, piece: self._try_angle_slice(
+                pos, min_x, max_x, min_y, max_y, piece, angle
+            ),
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+            largest_piece,
+            n_children,
+        )
+        return cut, score
+
+    def ternary_search_cut_n(
+        self,
+        try_fn,
+        min_x: float,
+        max_x: float,
+        min_y: float,
+        max_y: float,
+        piece: Polygon,
+        n_children: int,
+        epsilon: float = 0.01,
+    ) -> tuple[CutResult, tuple[float, float]]:
+        """Ternary search for the optimal cut positio based on the slicing function to try, returns best cut and its score"""
+        left, right = 0.01, 0.99
+        best_cut, best_score = None, (float("inf"), float("inf"))
+        iterations = 0
+        # NOTE: tune later
+        max_iterations = 20
+
+        while right - left > epsilon and iterations < max_iterations:
+            iterations += 1
+
+            mid1 = left + (right - left) / 3
+            mid2 = right - (right - left) / 3
+
+            cut1, score1 = self.positions_best_cut_n(
+                try_fn, mid1, min_x, max_x, min_y, max_y, piece, n_children
+            )
+            cut2, score2 = self.positions_best_cut_n(
+                try_fn, mid2, min_x, max_x, min_y, max_y, piece, n_children
+            )
+
+            if score1 < best_score:
+                best_cut, best_score = cut1, score1
+            if score2 < best_score:
+                best_cut, best_score = cut2, score2
+
+            if score1 < score2:
+                right = mid2
+            else:
+                left = mid1
+
+        return best_cut, best_score
+
+    def positions_best_cut_n(
+        self,
+        try_fn,
+        position: float,
+        min_x: float,
+        max_x: float,
+        min_y: float,
+        max_y: float,
+        piece: Polygon,
+        n_children: int,
+    ) -> tuple[CutResult, tuple[float, float]]:
+        """Calculates the best cut and score based on all possible cuts at a given position"""
+        cuts = try_fn(position, min_x, max_x, min_y, max_y, piece)
+        best_cut = None
+        best_score = (float("inf"), float("inf"))
+        if cuts:
+            for cut in cuts:
+                if cut is not None:
+                    score = self.score_cut_n(cut, n_children)
+                    # NOTE: these are tuples we need to check both else area dominates
+                    if score < best_score:
+                        best_score, best_cut = score, cut
+
+        # NOTE: catch later if invalid
+        return best_cut, best_score
+
+    def score_cut_n(self, cut: CutResult, n_children: int) -> tuple[float, float]:
+        """Calculate the score of a cut with stddev from target area and cake to crust ratio"""
+        if cut is None:
+            return (float("inf"), float("inf"))
+
+        polygons = self.current_polygon(cut)
+        # polygons.sort(key = lambda piece: piece.area)
+        if len(polygons) != 2:
+            return (float("inf"), float("inf"))
+        areas = [polygon.area for polygon in polygons]
+        small_area_score = abs(min(areas) / floor(n_children / 2) - self.target_area)
+        large_area_score = abs(max(areas) / ceil(n_children / 2) - self.target_area)
+        # area_scores = [abs(polygon.area - self.target_area) for polygon in polygons]
+        area_scores = [small_area_score, large_area_score]
+        ratio_scores = [
+            abs(self.get_piece_ratio(polygon) - self.target_ratio)
+            for polygon in polygons
+        ]
+        # always looking at largest area error - never want it to be too big
+        area_score = max(area_scores)
+        # always looking at largest ratio - since we check everything for ternary search?
+        ratio_score = max(ratio_scores)
+        # ratio_score = ratio_scores[area_scores.index(min(area_scores))]
+
+        # If difference from target area < 0.125, treat it as equal → rely on ratio
+        if area_score <= 0.25:
+            area_score = 0.0
+        if ratio_score <= 0.05:
+            ratio_score = 0.0
+
+        # adding line length as the last factor as after dividing area equally we would love to have more interior !
+        return (area_score, ratio_score, LineString(cut.points).length)
