@@ -606,7 +606,7 @@ class Player6(Player):
         # ratio_score = ratio_scores[area_scores.index(min(area_scores))]
 
         # If difference from target area < 0.125, treat it as equal → rely on ratio
-        if area_score < 0.25:
+        if area_score < 0.245:
             area_score = 0.0
         if ratio_score <= 0.05:
             ratio_score = 0.0
