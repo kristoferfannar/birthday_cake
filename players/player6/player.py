@@ -585,10 +585,10 @@ class Player6(Player):
         # ratio_score = ratio_scores[area_scores.index(min(area_scores))]
 
         # If difference from target area < 0.125, treat it as equal → rely on ratio
-        if area_score <= 0.25:
+        if area_score < 0.25:
             area_score = 0.0
         if ratio_score <= 0.05:
             ratio_score = 0.0
 
         # adding line length as the last factor as after dividing area equally we would love to have more interior !
-        return (area_score, ratio_score, LineString(cut.points).length)
+        return (area_score, ratio_score, 1/LineString(cut.points).length)
