@@ -1,0 +1,22 @@
+Project 2: Birthday Cake
+You work for the Really Interesting Cake and Pie Company. Your company specializes in baking unusual birthday cakes for children's parties. The cakes are arbitrary polygons (without holes) shaped like anything a kid could want (dinosaurs, people, cars, etc.).
+
+Baking a cake with a weird shape leads to nonuniform distributions of hard outer crust versus soft interior. We'll call any part of the cake that is within 1cm of the perimeter "crust" and the rest of the cake will be called the interior. To avoid tantrums, parents want to be able to cut the cake fairly, so that children get pieces that are of equal size, and so that each piece has the same proportion of crust and interior. For the purposes of this project, we'll say that two pieces that differ in size by less than 0.5 square centimeters are the ``same size'' because children would not be able to perceive such a small difference. Similarly, differences smaller than 5% in the proportion would not be noticed by the children, and two proportions within that tolerance would be considered the same.
+
+Your company has two kinds of offering, "Pre-set" and "Bespoke". The first offering involves designs that are pre-set, where the company chooses the polygon and the number of children to be served. The pre-set designs are displayed on the company's web site, and parents can simply order such a design. These designs must have the property that all pieces are of the same size, and have the same proportion of crust and interior.
+
+The bespoke offering allows parents to upload a polygon shape and a number of children. Your task is to make a one-off cake in that shape to serve the given number of children. Your solution is a set of straight cuts that would divide the cake into the correct number of equal-sized pieces. The score of your bespoke solution is the variance in the proportion of crust to interior across all of the pieces, and a smaller score is better.
+
+A straight cut must begin and end at either a point on the perimeter, or a point on a previously-applied straight cut. Cuts may not extend beyond the perimeter, or beyond a previously-made cut. Thus each cut will divide a larger polygon into two smaller polygons, and n-1 cuts will yield n polygonal pieces of cake.No cake should be wasted, so the n pieces of cake will be distributed to exactly n children.
+
+The original cake polygon must satisfy several constraints. All angles of the cake polygon must be at least 15 degrees. The cake must be at least 50% interior, otherwise the cake is more like a cookie! So, for example, a rectangular cake that is too thin (how thin?) would not be a valid cake. Finally, the cake must be of reasonable size for the given number of children, i.e., between 10 and 50 square centimeters per child; 50 makes sense for a relatively flat cake, while 10 might correspond to a tall cake.
+
+We'll provide a simulator to verify that your cuts meet the criteria, and to calculate the score for bespoke offerings. During the course of class discussions, we'll ask groups to provide example polygons for the bespoke offerings. For the end-of-project tournament, we'll run your code on some of these examples, along with some unseen polygons, chosen by the instructor and TAs.
+
+For pre-set offerings, we'll allow each group to submit one or two cake designs and then we'll conduct a survey among people external to the class to see which are the most impressive. For that part of the evaluation, you should submit the polygon specification and the set of cut lines for the simulator to check. The simulator will then generate an image corresponding to your cut polygon, in black-and-white without decoration. You should also submit a color image corresponding to how the cake might be decorated for an actual children's party. You can use a graphic editor or some custom code to generate the image; alternatively, you can take a photograph of a physical mock-up or (even better) an actual cake. People judging the pre-set cakes will see both the simulator output and your decorated image. In your project report, make sure to discuss how you explored possible pre-set designs: e.g., totally by hand, with the help of some code, with the help of an LLM, etc.
+
+Some initial things to think about:
+
+The cake polygon might not be convex. A convex cake might be mathematically simpler (why?) but less interesting (a convex dinosaur?!).
+Does the bespoke problem become harder or easier as the number of children increases?
+

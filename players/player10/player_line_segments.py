@@ -70,25 +70,50 @@ class Player10(Player):
         return cut_line
 
     def find_cuts(self, line: LineString, piece: Polygon):
-        """This function finds the actual points where the cut line goes through cake"""
+        """Find exactly two points where the cut line intersects the cake boundary, ensuring only one cut per turn."""
         intersection = line.intersection(piece.boundary)
 
-        # What is the intersections geometry? - want it to be at least two points
-        if intersection.is_empty or intersection.geom_type == "Point":
-            return None
+        # Collect all intersection points
         points = []
-        if intersection.geom_type == "MultiPoint":
+        if intersection.is_empty:
+            return None  # No intersection
+        if intersection.geom_type == "Point":
+            points = [intersection]
+        elif intersection.geom_type == "MultiPoint":
             points = list(intersection.geoms)
         elif intersection.geom_type == "LineString":
             coords = list(intersection.coords)
-            points = [Point(c) for c in coords]
+            points = [Point(coords[0]), Point(coords[-1])]
+        elif intersection.geom_type == "GeometryCollection":
+            for geom in intersection.geoms:
+                if geom.geom_type == "Point":
+                    points.append(geom)
+                elif geom.geom_type == "LineString":
+                    coords = list(geom.coords)
+                    points.extend([Point(coords[0]), Point(coords[-1])])
 
-        # Need at least 2 points for a valid cut
+        # Remove duplicates (sometimes endpoints overlap)
+        unique_points = []
+        for p in points:
+            if not any(p.equals(q) for q in unique_points):
+                unique_points.append(p)
+        points = unique_points
+
         if len(points) < 2:
-            return None
+            return None  # Not enough points for a valid cut
 
-        # return the points where the sweeping line intersects with the cake
-        return (points[0], points[1])
+        # If more than 2 points, select the two farthest apart along the line
+        if len(points) > 2:
+            # Project points onto the line and sort by their position
+            def proj(pt):
+                return line.project(pt)
+            points_sorted = sorted(points, key=proj)
+            # The two farthest apart will be the first and last after sorting
+            cut_points = (points_sorted[0], points_sorted[-1])
+        else:
+            cut_points = (points[0], points[1])
+
+        return cut_points
 
     def calculate_piece_area(self, piece: Polygon, position: float, angle: float):
         """Determines the area of the pieces we cut.
@@ -588,17 +613,13 @@ class Player10(Player):
             pieces_queue.pop(cutting_index)
 
             print(f"\n=== Cut {cut_number + 1}/{self.children - 1} ===")
-            print(
-                f"Dividing piece for {cutting_num_children} children (area: {cutting_piece.area:.2f})"
-            )
+            print(f"Dividing piece for {cutting_num_children} children (area: {cutting_piece.area:.2f})")
 
             # Try different split ratios: split n children into (k, n-k)
             # where k ranges from 1 to floor(n/2) for balanced divide-and-conquer
             min_split = 1
             max_split = max(1, cutting_num_children // 2)
-            print(
-                f"Exploring split ratios: 1/{cutting_num_children} to {max_split}/{cutting_num_children}"
-            )
+            print(f"Exploring split ratios: 1/{cutting_num_children} to {max_split}/{cutting_num_children}")
 
             # Two-phase strategy:
             # Phase 1: Try all split ratios with cardinal angles + random sampling to find best ratio
@@ -699,12 +720,8 @@ class Player10(Player):
                 )
                 phase2_attempts = num_attempts - phase1_attempts
 
-                print(
-                    f"  Phase 1 complete. Best split ratio: {best_ratio_from_phase1}/{cutting_num_children}"
-                )
-                print(
-                    f"  Phase 2: Trying {phase2_attempts} more angles with best ratio..."
-                )
+                print(f"  Phase 1 complete. Best split ratio: {best_ratio_from_phase1}/{cutting_num_children}")
+                print(f"  Phase 2: Trying {phase2_attempts} more angles with best ratio...")
 
                 remaining_children_phase2 = (
                     cutting_num_children - best_ratio_from_phase1
@@ -799,43 +816,31 @@ class Player10(Player):
 
             # Print info
             print(f"  Best cut (tried {valid_attempts} valid attempts)")
-            print(
-                f"  Split ratio: {split_children}/{cutting_num_children} and {remaining_children}/{cutting_num_children}, angle={used_angle:.1f}°"
-            )
-            print(
-                f"  Piece 1 ({split_children} children): size={small_piece.area:.2f} (target={split_children * target_area:.2f}), crust_ratio={ratio1:.3f}"
-            )
-            print(
-                f"  Piece 2 ({remaining_children} children): size={large_piece.area:.2f} (target={remaining_children * target_area:.2f}), crust_ratio={ratio2:.3f}"
-            )
+            print(f"  Split ratio: {split_children}/{cutting_num_children} and {remaining_children}/{cutting_num_children}, angle={used_angle:.1f}°")
+            print(f"  Piece 1 ({split_children} children): size={small_piece.area:.2f} (target={split_children*target_area:.2f}), crust_ratio={ratio1:.3f}")
+            print(f"  Piece 2 ({remaining_children} children): size={large_piece.area:.2f} (target={remaining_children*target_area:.2f}), crust_ratio={ratio2:.3f}")
 
             # Show current queue status
             total_in_queue = sum(nc for _, nc in pieces_queue)
-            print(
-                f"  Queue: {len(pieces_queue)} pieces for {total_in_queue} total children"
-            )
+            print(f"  Queue: {len(pieces_queue)} pieces for {total_in_queue} total children")
 
         # Final summary
-        print(f"\n{'=' * 50}")
-        print(f"FINAL RESULT: {len(all_cuts)}/{self.children - 1} cuts completed")
+        print(f"\n{'='*50}")
+        print(f"FINAL RESULT: {len(all_cuts)}/{self.children-1} cuts completed")
 
         pieces = cake_copy.get_pieces()
         areas = [p.area for p in pieces]
         ratios = cake_copy.get_piece_ratios()
 
         print(f"\nPiece areas: {[f'{a:.2f}' for a in sorted(areas)]}")
-        print(
-            f"  Min: {min(areas):.2f}, Max: {max(areas):.2f}, Span: {max(areas) - min(areas):.2f}"
-        )
+        print(f"  Min: {min(areas):.2f}, Max: {max(areas):.2f}, Span: {max(areas) - min(areas):.2f}")
 
         print(f"\nCrust ratios: {[f'{r:.3f}' for r in ratios]}")
         if len(ratios) > 1:
             ratio_variance = stdev(ratios)
-            print(f"  Variance: {ratio_variance:.4f}")
-            print(
-                f"  Min: {min(ratios):.3f}, Max: {max(ratios):.3f}, Span: {max(ratios) - min(ratios):.3f}"
-            )
-        print(f"{'=' * 50}\n")
+        print(f"  Variance: {ratio_variance:.4f}")
+        print(f"  Min: {min(ratios):.3f}, Max: {max(ratios):.3f}, Span: {max(ratios) - min(ratios):.3f}")
+        print(f"{'='*50}\n")
 
         return all_cuts
 
@@ -848,7 +853,7 @@ class Player10(Player):
         cake_copy = self.cake.copy()
 
         for cut_idx in range(self.children - 1):
-            print(f"=== Cut {cut_idx + 1}/{self.children - 1} ===")
+            print(f"Cut {cut_idx + 1}/{self.children - 1}")
 
             current_pieces = cake_copy.get_pieces()
             cutting_piece = max(current_pieces, key=lambda pc: pc.area)
@@ -901,12 +906,8 @@ class Player10(Player):
                 areas = [p.area for p in cake_copy.get_pieces()]
                 size_error = abs(best_size - target_area)
                 ratio_error = abs(best_ratio - target_ratio)
-                print(
-                    f"  Best angle: {best_angle:.1f}° (tried {valid_attempts} valid angles)"
-                )
-                print(
-                    f"  Piece: size={best_size:.2f} (target={target_area:.2f}, err={size_error:.2f}), ratio={best_ratio:.3f} (target={target_ratio:.3f}, err={ratio_error:.3f})"
-                )
+                print(f"  Best angle: {best_angle:.1f}° (tried {valid_attempts} valid angles)")
+                print(f"  Piece: size={best_size:.2f} (target={target_area:.2f}, err={size_error:.2f}), ratio={best_ratio:.3f} (target={target_ratio:.3f}, err={ratio_error:.3f})")
                 print(f"  Current areas: {[f'{a:.2f}' for a in sorted(areas)]}\n")
 
             except Exception as e:
