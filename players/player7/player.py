@@ -4,7 +4,8 @@ from players.player import Player, PlayerException
 from src.cake import Cake
 
 import time
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import math, os
 
 def copy_geom(g):
     return wkb.loads(wkb.dumps(g))
@@ -22,7 +23,7 @@ class Player7(Player):
         self.moves: list[tuple[Point, Point]] = []
 
         # Configurable parameters
-        self.top_k_cuts = 10  # Number of top cuts to optimize
+        self.top_k_cuts = 12  # Number of top cuts to optimize
         self.optimization_iterations = 50  # Number of optimization iterations
         self.max_area_deviation = 0.25  # Maximum area deviation tolerance
         self.sample_step = 1  # Step size for sample points
@@ -167,17 +168,33 @@ class Player7(Player):
         top_cuts = candidate_cuts[: self.top_k_cuts]
 
         # Optimize each of the top cuts
+        def _batch_optimize(batch):
+            best = (float("inf"), None, None)  # (score, from_p, to_p)
+            for original_score, from_p, to_p in batch:
+                ofp, otp, oscore = self.optimize_cut(
+                    from_p, to_p,
+                    iterations=self.optimization_iterations,
+                    best_score=original_score
+                )
+                if oscore < best[0]:
+                    best = (oscore, ofp, otp)
+            return best  # (score, from_p, to_p)
+
         best_optimized_score = float("inf")
         best_optimized_cut = None
 
-        for original_score, from_p, to_p in top_cuts:
-            optimized_from_p, optimized_to_p, optimized_score = self.optimize_cut(
-                from_p, to_p, iterations=self.optimization_iterations, best_score = original_score
-            )
+        workers = min(4, os.cpu_count() or 2)
+        n = len(top_cuts)
+        batch_size = max(1, math.ceil(n / workers))
+        batches = [top_cuts[i:i+batch_size] for i in range(0, n, batch_size)]
 
-            if optimized_score < best_optimized_score:
-                best_optimized_score = optimized_score
-                best_optimized_cut = (optimized_from_p, optimized_to_p)
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(_batch_optimize, b) for b in batches]
+            for fut in as_completed(futures):
+                score, ofp, otp = fut.result()   # <-- get the (score, ofp, otp) tuple here
+                if score < best_optimized_score:
+                    best_optimized_score = score
+                    best_optimized_cut = (ofp, otp)
 
         return best_optimized_cut
 
