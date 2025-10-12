@@ -3,6 +3,8 @@ from shapely import Point, wkb
 from players.player import Player, PlayerException
 from src.cake import Cake
 
+import time
+
 
 def copy_geom(g):
     return wkb.loads(wkb.dumps(g))
@@ -20,8 +22,8 @@ class Player7(Player):
         self.moves: list[tuple[Point, Point]] = []
 
         # Configurable parameters
-        self.top_k_cuts = 5  # Number of top cuts to optimize
-        self.optimization_iterations = 100  # Number of optimization iterations
+        self.top_k_cuts = 10  # Number of top cuts to optimize
+        self.optimization_iterations = 50  # Number of optimization iterations
         self.max_area_deviation = 0.25  # Maximum area deviation tolerance
         self.sample_step = 1  # Step size for sample points
 
@@ -169,10 +171,9 @@ class Player7(Player):
         best_optimized_cut = None
 
         for original_score, from_p, to_p in top_cuts:
-            optimized_from_p, optimized_to_p = self.optimize_cut(
-                from_p, to_p, iterations=self.optimization_iterations
+            optimized_from_p, optimized_to_p, optimized_score = self.optimize_cut(
+                from_p, to_p, iterations=self.optimization_iterations, best_score = original_score
             )
-            optimized_score = self.evaluate_cut(optimized_from_p, optimized_to_p)
 
             if optimized_score < best_optimized_score:
                 best_optimized_score = optimized_score
@@ -207,11 +208,10 @@ class Player7(Player):
             return 0.0, 0.0
 
     def optimize_cut(
-        self, from_p: Point, to_p: Point, iterations: int = 20
+        self, from_p: Point, to_p: Point, iterations: int = 20, best_score: float = float("inf")
     ) -> tuple[Point, Point]:
         """Optimize a cut by moving points along the boundary direction."""
         best_cut = (from_p, to_p)
-        best_score = self.evaluate_cut(from_p, to_p)
 
         # If the initial cut is invalid, return it as-is
         if best_score == float("inf"):
@@ -282,11 +282,11 @@ class Player7(Player):
             if not improved:
                 continue
 
-        return best_cut
+        return best_cut[0], best_cut[1], best_score
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         self.moves.clear()  # Reset moves list
-
+        start = time.time()
         for cut in range(self.children - 1):
             print(f"Finding cut number {cut + 1}")
             optimized_from_p, optimized_to_p = self.find_best_cut()
@@ -296,4 +296,5 @@ class Player7(Player):
             # Simulate the cut on our cake to maintain accurate state
             self.cake.cut(optimized_from_p, optimized_to_p)
 
+        print(f"Total cutting time: {time.time() - start:.2f} seconds")
         return self.moves
