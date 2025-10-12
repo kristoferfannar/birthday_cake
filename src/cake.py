@@ -118,7 +118,9 @@ class Cake:
 
         # draw interiors
         for ic in int_coords:
-            canvas.create_polygon(ic, outline="black", fill=c.CAKE_INTERIOR, width=1)
+            canvas.create_polygon(
+                ic, outline=c.CAKE_INTERIOR, fill=c.CAKE_INTERIOR, width=0
+            )
 
         # write edge points to canvas
         coords = [i.coords[0] for i in self.get_boundary_points()][:-1]
@@ -317,7 +319,6 @@ def get_polygon_angles(p: Polygon) -> list[float]:
 
 
 def cake_angles_are_ok(cake: Polygon):
-    print(get_polygon_angles(cake))
     return all([angle >= c.MIN_CAKE_ANGLE_DEGREE for angle in get_polygon_angles(cake)])
 
 
@@ -409,7 +410,6 @@ def attempt_cake_generation(num_vertices: int) -> Polygon:
     vertices = list(p.exterior.coords)
 
     while not cake_angles_are_ok(p) and len(p.exterior.coords) - 1 > 3:
-        print(f"eliminating cake angle: vertices={len(p.exterior.coords)}")
         angles = get_polygon_angles(p)
         for i, angle in enumerate(angles):
             if angle < c.MIN_CAKE_ANGLE_DEGREE:
@@ -427,7 +427,7 @@ def generate_cake(children: int, sandbox: bool) -> Cake:
     num_vertices = random.randint(lo, hi)
 
     # how often will we try generating a valid cake until we give up
-    attempts = 5
+    attempts = 500
     for _ in range(attempts):
         try:
             attempted_cake = attempt_cake_generation(num_vertices)

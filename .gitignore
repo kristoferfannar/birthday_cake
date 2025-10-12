@@ -6,9 +6,11 @@ build/
 dist/
 wheels/
 *.egg-info
+shells/
 
 # Virtual environments
 .venv
 venv
 
 players/player8/koch_snowflake.py
+**/.DS_Store

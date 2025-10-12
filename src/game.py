@@ -7,7 +7,7 @@ from src.args import Args
 import src.constants as c
 from src.cake import cake_from_args
 
-from players.player import Player
+from players.player import Player, PlayerException
 from players.random_player import RandomPlayer
 from players.player1.player import Player1
 from players.player2.player import Player2
@@ -179,7 +179,19 @@ class Game:
 
     def play(self):
         x_offset, y_offset = self.cake.get_offsets()
-        moves = self.player.get_cuts()
+        moves = []
+        try:
+            moves = self.player.get_cuts()
+        except PlayerException as e:
+            msg = f"{str(e)[:100]}"
+            if self.args.gui:
+                self.print_overlay_message(msg)
+            raise e
+        except Exception as e:
+            msg = f"Exception: {str(e)[:100]}"
+            if self.args.gui:
+                self.print_overlay_message(msg)
+            raise e
 
         if len(moves) != self.args.children - 1:
             msg = f"Player Exception: Invalid amount of cuts. expected {self.args.children - 1}, got {len(moves)}"
