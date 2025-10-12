@@ -5,7 +5,7 @@ from shapely.geometry import Polygon, LineString, Point
 from shapely import MultiLineString, intersection
 from shapely.ops import split
 from typing import cast, List, Optional
-from math import hypot, pi, cos, tan, isclose, floor, ceil
+from math import hypot, pi, cos, tan, sin, isclose, floor, ceil
 import numpy as np
 from joblib import Parallel, delayed
 import src.constants as c
@@ -254,14 +254,14 @@ class Player6(Player):
         min_y: float,
         max_y: float,
         piece: Polygon,
-        epsilon: float = 0.01,
+        epsilon: float = 0.000001,
     ) -> tuple[CutResult, tuple[float, float]]:
         """Ternary search for the optimal cut positio based on the slicing function to try, returns best cut and its score"""
-        left, right = 0.01, 0.99
+        left, right = 0.01, 1
         best_cut, best_score = None, (float("inf"), float("inf"))
         iterations = 0
         # NOTE: tune later
-        max_iterations = 20
+        max_iterations = 2000
 
         while right - left > epsilon and iterations < max_iterations:
             iterations += 1
@@ -327,16 +327,37 @@ class Player6(Player):
         theta = angle * pi
 
         # When cos(theta) is very small → vertical line
-        if isclose(abs(cos(theta)), 0, abs_tol=1e-6):
+        if isclose(abs(angle), 0.5, abs_tol=0.01):
             # Use x = constant line
+            # print("ANGLE IS CLOSE TO 90 ")
+            # print(min_x, min_y, max_x, max_y)
             x_const = min_x + frac * (max_x - min_x)
             return LineString([(x_const, min_y), (x_const, max_y)])
         else:
-            # Regular slope-intercept form
-            slope = tan(theta)
-            intercept = min_y + frac * (max_y - min_y)
-            x1, x2 = min_x, max_x
-            y1, y2 = slope * x1 + intercept, slope * x2 + intercept
+            # For angled lines, we need to create a line that sweeps across the bounding box
+            # Use parametric approach: start from one edge and go to the opposite edge
+            
+            # Calculate the center point and use it as reference
+            center_x = min_x + frac * (max_x - min_x)
+            center_y = min_y + frac * (max_y - min_y)
+            
+            # Create a line through the center point with the given angle
+            # Line direction vector from angle
+            dx = cos(theta)
+            dy = sin(theta)
+            
+            # Extend the line to intersect the bounding box
+            # Calculate how far we need to extend to reach the edges
+            width = max_x - min_x
+            height = max_y - min_y
+            max_distance = hypot(width, height)
+            
+            # Create line endpoints extending in both directions
+            x1 = center_x - max_distance * dx
+            y1 = center_y - max_distance * dy
+            x2 = center_x + max_distance * dx
+            y2 = center_y + max_distance * dy
+            
             return LineString([(x1, y1), (x2, y2)])
 
     def _try_angle_slice(
@@ -500,14 +521,14 @@ class Player6(Player):
         max_y: float,
         piece: Polygon,
         n_children: int,
-        epsilon: float = 0.01,
+        epsilon: float = 0.00001,
     ) -> tuple[CutResult, tuple[float, float]]:
         """Ternary search for the optimal cut positio based on the slicing function to try, returns best cut and its score"""
         left, right = 0.01, 0.99
         best_cut, best_score = None, (float("inf"), float("inf"))
         iterations = 0
         # NOTE: tune later
-        max_iterations = 20
+        max_iterations = 2000
 
         while right - left > epsilon and iterations < max_iterations:
             iterations += 1
