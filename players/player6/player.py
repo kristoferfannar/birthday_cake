@@ -256,7 +256,7 @@ class Player6(Player):
         piece: Polygon,
         epsilon: float = 0.000001,
     ) -> tuple[CutResult, tuple[float, float]]:
-        """Ternary search for the optimal cut positio based on the slicing function to try, returns best cut and its score"""
+        """Ternary search for the cut positio based on the slicing function to try, returns best cut and its score"""
         left, right = 0.01, 1
         best_cut, best_score = None, (float("inf"), float("inf"))
         iterations = 0
@@ -397,7 +397,7 @@ class Player6(Player):
         return cut, score
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
-        """Adaptive coarse-to-fine search for near-optimal cuts with multiple angles using parallel processing."""
+        """Adaptive coarse-to-fine search for cuts with multiple angles using parallel processing."""
         result = self.get_cuts_divide_conquer()
         if not result:
             return []
@@ -523,7 +523,7 @@ class Player6(Player):
         n_children: int,
         epsilon: float = 0.00001,
     ) -> tuple[CutResult, tuple[float, float]]:
-        """Ternary search for the optimal cut positio based on the slicing function to try, returns best cut and its score"""
+        """Ternary search for the cut positio based on the slicing function to try, returns best cut and its score"""
         left, right = 0.01, 0.99
         best_cut, best_score = None, (float("inf"), float("inf"))
         iterations = 0
