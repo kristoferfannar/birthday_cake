@@ -8,10 +8,8 @@ from .helper_func import find_valid_cuts_binary_search
 class Player3(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
-        self.num_samples = 500 
-        self.original_ratio = cake.get_piece_ratio(
-            cake.get_pieces()[0]
-        )  
+        self.num_samples = 500
+        self.original_ratio = cake.get_piece_ratio(cake.get_pieces()[0])
         self.target_area = sum(p.area for p in self.cake.get_pieces()) / self.children
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
@@ -34,7 +32,7 @@ class Player3(Player):
             )
 
             if best_cut is None:
-                break 
+                break
 
             cuts.append(best_cut)
             working_cake.cut(best_cut[0], best_cut[1])

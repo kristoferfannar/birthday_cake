@@ -3,30 +3,33 @@ from shapely.geometry import LineString
 from src.cake import Cake
 import math
 
-#essentially our outer circle idea from wednesday, does not yet take into account the ratio idea, but binary search
-#should only change minimally
+# essentially our outer circle idea from wednesday, does not yet take into account the ratio idea, but binary search
+# should only change minimally
+
 
 def find_point(xy1: Point, angle: float, piece: Polygon) -> Point | None:
     # Find where a line from start_point at given angle intersects the piece boundary
 
     # create a line extending from xy1 at the given angle
-    # 100 is arbitraryly large to ensure it goes beyond the piece   
+    # 100 is arbitraryly large to ensure it goes beyond the piece
     xy2 = Point(xy1.x + 100 * math.cos(angle), xy1.y + 100 * math.sin(angle))
     line = LineString([xy1, xy2])
 
     boundary = piece.boundary
     intersection = line.intersection(boundary)
 
-    if intersection.geom_type == 'Point':
+    if intersection.geom_type == "Point":
         return intersection
-    
-    elif intersection.geom_type == 'MultiPoint':
-        valid_points = (p for p in intersection.geoms if p.distance(xy1) > 0)
-        
-        return min(valid_points, key=lambda p: p.distance(xy1))
-    
 
-def binary_search_cut(cake: Cake, xy1: Point, target_area: float, largest_piece: Polygon) -> tuple[Point, float] | None:
+    elif intersection.geom_type == "MultiPoint":
+        valid_points = (p for p in intersection.geoms if p.distance(xy1) > 0)
+
+        return min(valid_points, key=lambda p: p.distance(xy1))
+
+
+def binary_search_cut(
+    cake: Cake, xy1: Point, target_area: float, largest_piece: Polygon
+) -> tuple[Point, float] | None:
     # Use binary search to find a cut that produces the target area
 
     centroid = largest_piece.centroid
@@ -48,9 +51,9 @@ def binary_search_cut(cake: Cake, xy1: Point, target_area: float, largest_piece:
     right = xy2_angle + math.pi
 
     best_xy2 = None
-    best_area_diff = float('inf')
+    best_area_diff = float("inf")
 
-    #standard binary search. stop when within 0.001 radians
+    # standard binary search. stop when within 0.001 radians
     while right > 0.001 + left:
         mid = (left + right) / 2
         xy2 = find_point(xy1, mid, largest_piece)
@@ -78,7 +81,7 @@ def binary_search_cut(cake: Cake, xy1: Point, target_area: float, largest_piece:
         if area_diff < best_area_diff:
             best_area_diff = area_diff
             best_xy2 = xy2
-        
+
         min_area = min(areas)
 
         if min_area < target_area:
@@ -93,7 +96,12 @@ def binary_search_cut(cake: Cake, xy1: Point, target_area: float, largest_piece:
     return None
 
 
-def find_valid_cuts_binary_search(cake: Cake, perim_points: list[Point] | None, target_area: float, original_ratio: float) -> list[tuple[Point, Point]]:
+def find_valid_cuts_binary_search(
+    cake: Cake,
+    perim_points: list[Point] | None,
+    target_area: float,
+    original_ratio: float,
+) -> list[tuple[Point, Point]]:
     valid_cuts = []
 
     largest_piece = max(cake.get_pieces(), key=lambda piece: piece.area)
@@ -115,7 +123,7 @@ def find_valid_cuts_binary_search(cake: Cake, perim_points: list[Point] | None, 
 
         valid_cuts.append((xy1, xy2, area_diff, ratio_diff))
 
-    #sort only by ratio since we only return valid areas
+    # sort only by ratio since we only return valid areas
     valid_cuts.sort(key=lambda x: x[3])
 
     return [(xy1, xy2) for xy1, xy2, _, _ in valid_cuts]
