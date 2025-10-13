@@ -193,9 +193,9 @@ class Cake:
         cuttable_piece, reason = self.get_cuttable_piece(from_p, to_p)
 
         if not cuttable_piece:
-            return False, reason, None
+            return False, reason
 
-        return True, "valid", cuttable_piece
+        return True, "valid"
 
     def does_line_cut_piece_well(self, line: LineString, piece: Polygon):
         """Checks whether line cuts piece in two valid (large enough) pieces"""
@@ -235,11 +235,12 @@ class Cake:
 
     def cut(self, from_p: Point, to_p: Point):
         """Perform a cut from `from_p` to `to_p` on this cake."""
-        is_valid, reason, target_piece = self.cut_is_valid(from_p, to_p)
+        is_valid, reason = self.cut_is_valid(from_p, to_p)
         if not is_valid:
             raise Exception(f"invalid cut: {reason}")
 
         # as this cut is valid, we will have exactly one cuttable piece
+        target_piece, _ = self.get_cuttable_piece(from_p, to_p)
         assert target_piece is not None
 
         split_pieces = self.cut_piece(target_piece, from_p, to_p)
