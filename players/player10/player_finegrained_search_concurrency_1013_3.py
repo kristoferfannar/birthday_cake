@@ -72,24 +72,40 @@ class Player10(Player):
         point_y = center_y + offset_y
 
         # Create a line at the given angle through this point
+        # But clip it to stay within the piece boundaries
         dx = math.cos(angle_rad) * max_dim
         dy = math.sin(angle_rad) * max_dim
 
-        # Create line extending in both directions
-        start_point = (point_x - dx, point_y - dy)
-        end_point = (point_x + dx, point_y + dy)
-        cut_line = LineString([start_point, end_point])
+        # Find intersection points with the piece boundary
+        test_line = LineString([(point_x - dx, point_y - dy), (point_x + dx, point_y + dy)])
+        intersections = test_line.intersection(piece.boundary)
 
-        return cut_line
+        if intersections.is_empty:
+            return None
+
+        # Get the intersection points
+        if intersections.geom_type == "Point":
+            points = [intersections]
+        elif intersections.geom_type == "MultiPoint":
+            points = list(intersections.geoms)
+        else:
+            return None
+
+        if len(points) >= 2:
+            # Use the two intersection points as the cut endpoints
+            cut_line = LineString(points[:2])
+            return cut_line
+
+        return None
 
     def find_cuts(self, line: LineString, piece: Polygon):
-        """Find exactly two points where the cut line intersects the cake boundary, ensuring only one cut per turn."""
+        """Find exactly two points where the cut line intersects the cake boundary."""
         intersection = line.intersection(piece.boundary)
 
         # Collect all intersection points
         points = []
         if intersection.is_empty:
-            return None  # No intersection
+            return None
         if intersection.geom_type == "Point":
             points = [intersection]
         elif intersection.geom_type == "MultiPoint":
@@ -105,7 +121,7 @@ class Player10(Player):
                     coords = list(geom.coords)
                     points.extend([Point(coords[0]), Point(coords[-1])])
 
-        # Remove duplicates and sort by position along the line for better pair selection
+        # Remove duplicates
         unique_points = []
         tolerance = 1e-6
         for p in points:
@@ -118,102 +134,28 @@ class Player10(Player):
                 unique_points.append(p)
 
         if len(unique_points) < 2:
-            return None  # Not enough points for a valid cut
+            return None
 
-        # Sort points by their position along the cut line for better pair selection
-        def sort_key(point):
-            # Project point onto the cut line direction
-            line_vector = (line.coords[1][0] - line.coords[0][0],
-                          line.coords[1][1] - line.coords[0][1])
-            point_vector = (point.x - line.coords[0][0],
-                           point.y - line.coords[0][1])
-            # Use dot product for projection
-            return point_vector[0] * line_vector[0] + point_vector[1] * line_vector[1]
+        # If exactly 2 points, use them
+        if len(unique_points) == 2:
+            return (unique_points[0], unique_points[1])
 
-        sorted_points = sorted(unique_points, key=sort_key)
-
-        # If exactly 2 points, use them (already sorted)
-        if len(sorted_points) == 2:
-            return (sorted_points[0], sorted_points[1])
-
-        # Check if this is a complex shape (like Hilbert curve) that needs special handling
-        is_complex_shape = self._is_complex_shape(piece)
-
-        if is_complex_shape:
-            # Use specialized method for complex shapes
-            return self._find_cuts_for_complex_shape(line, piece)
-
-        # For regular shapes, use the standard approach
-        # Strategy 1: Prioritize short, clean cuts first (most reliable for complex shapes)
-        max_reasonable_distance = piece.bounds[2] - piece.bounds[0]  # width of bounding box
-
-        # Try pairs in order of increasing distance (shorter cuts first)
-        pair_candidates = []
-        for i in range(len(sorted_points)):
-            for j in range(i + 1, len(sorted_points)):
-                p1, p2 = sorted_points[i], sorted_points[j]
-                distance = p1.distance(p2)
-                # Only consider reasonable distance cuts
-                if distance <= max_reasonable_distance * 0.7:
-                    pair_candidates.append((distance, (p1, p2)))
-
-        # Sort by distance (shorter first)
-        pair_candidates.sort(key=lambda x: x[0])
-
-        # Try shortest pairs first
-        for distance, (p1, p2) in pair_candidates:
-            if self._is_valid_cut_pair_conservative(p1, p2, piece, line):
-                return (p1, p2)
-
-        # Strategy 2: If no short cuts work, try slightly longer ones
-        for distance, (p1, p2) in pair_candidates:
-            if distance <= max_reasonable_distance * 0.9:
-                if self._is_valid_cut_pair_conservative(p1, p2, piece, line):
-                    return (p1, p2)
-
-        # Strategy 3: Try all pairs with robust validation (best for complex shapes)
-        from itertools import combinations
-        best_pair = None
-        best_score = float('inf')
-
-        for p1, p2 in combinations(sorted_points, 2):
-            if self._is_valid_cut_pair_robust(p1, p2, piece, line):
-                # Calculate a score for this pair (shorter cuts are generally better for complex shapes)
-                cut_length = p1.distance(p2)
-                score = cut_length
-
-                if score < best_score:
-                    best_score = score
-                    best_pair = (p1, p2)
-
-        if best_pair:
-            return best_pair
-
-        # Strategy 4: Try all pairs with conservative validation
-        for p1, p2 in combinations(sorted_points, 2):
-            if self._is_valid_cut_pair_conservative(p1, p2, piece, line):
-                return (p1, p2)
-
-        # Strategy 5: Ultimate fallback - try consecutive pairs with minimal validation
-        # For very complex shapes, sometimes we need to accept imperfect cuts
-        print(f"    Warning: Using fallback strategy for complex shape with {len(sorted_points)} intersection points")
-
-        for i in range(len(sorted_points) - 1):
-            p1, p2 = sorted_points[i], sorted_points[i + 1]
+        # For complex shapes, try consecutive pairs first
+        for i in range(len(unique_points) - 1):
+            p1, p2 = unique_points[i], unique_points[i + 1]
             test_line = LineString([p1, p2])
             midpoint = test_line.interpolate(0.5, normalized=True)
-
-            # Minimal validation - just check midpoint is roughly inside
             if piece.contains(midpoint) or piece.boundary.contains(midpoint):
-                from shapely.ops import split as shapely_split
-                try:
-                    result = shapely_split(piece, test_line)
-                    if len(result.geoms) >= 2:  # Accept even if not exactly 2 pieces
-                        return (p1, p2)
-                except:
-                    continue
+                return (p1, p2)
 
-        # Fallback: if no valid pair found, return None
+        # If no consecutive pairs work, try all pairs
+        from itertools import combinations
+        for p1, p2 in combinations(unique_points, 2):
+            test_line = LineString([p1, p2])
+            midpoint = test_line.interpolate(0.5, normalized=True)
+            if piece.contains(midpoint) or piece.boundary.contains(midpoint):
+                return (p1, p2)
+
         return None
 
     def _is_valid_cut_pair(self, p1: Point, p2: Point, piece: Polygon, original_line: LineString) -> bool:
@@ -367,8 +309,25 @@ class Player10(Player):
                 if result:
                     return result
 
-        # Strategy 2: If orientation-based approach fails, fall back to standard method
-        return self.find_cuts(line, piece)
+        # Strategy 2: If orientation-based approach fails, fall back to simple logic
+        # Use basic intersection logic without calling find_cuts recursively
+        intersection = line.intersection(piece.boundary)
+
+        points = []
+        if not intersection.is_empty:
+            if intersection.geom_type == "Point":
+                points = [intersection]
+            elif intersection.geom_type == "MultiPoint":
+                points = list(intersection.geoms)
+            elif intersection.geom_type == "LineString":
+                coords = list(intersection.coords)
+                points = [Point(coords[0]), Point(coords[-1])]
+
+        if len(points) >= 2:
+            # Simple approach: return the first two points
+            return (points[0], points[1])
+
+        return None
 
     def _is_complex_shape(self, piece: Polygon) -> bool:
         """Determine if a piece is a complex shape that needs special handling."""
@@ -562,6 +521,8 @@ class Player10(Player):
             angle: Angle in degrees for the cutting line
         """
         line = self.find_line(position, piece, angle)
+        if line is None:
+            return 0.0
         pieces = split(piece, line)
 
         # we should get two pieces if not, line didn't cut properly
@@ -823,32 +784,44 @@ class Player10(Player):
                 angle = random.uniform(0, 180)
                 attempts_to_try.append((split_children, angle, "phase1"))
 
-            # Process Phase 1 attempts sequentially
-            print(f"  Phase 1: Processing {len(attempts_to_try)} attempts sequentially...")
-            for args in attempts_to_try:
-                result = self._evaluate_attempt((
-                    args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
-                ))
-                if result:
-                    valid_attempts += 1
+            # Process Phase 1 attempts concurrently
+            print(f"  Phase 1: Processing {len(attempts_to_try)} attempts concurrently with {self.num_of_processes} processes...")
 
-                    # Update best scores
-                    split_children = result['split_children']
-                    if result['score'] < split_ratio_scores[split_children]:
-                        split_ratio_scores[split_children] = result['score']
+            # Split attempts into chunks for each process
+            chunk_size = max(1, len(attempts_to_try) // self.num_of_processes)
+            attempt_chunks = [attempts_to_try[i:i + chunk_size] for i in range(0, len(attempts_to_try), chunk_size)]
 
-                    if result['score'] < best_score:
-                        best_score = result['score']
-                        best_cut = (
-                            result['cut_points'][0],
-                            result['cut_points'][1],
-                            result['small_piece'],
-                            result['large_piece'],
-                            result['ratio1'],
-                            result['ratio2'],
-                            result['angle'],
-                        )
-                        best_split_ratio = (split_children, result['remaining_children'])
+            # Process chunks concurrently
+            with ProcessPoolExecutor(max_workers=self.num_of_processes) as executor:
+                # Submit all chunks
+                futures = []
+                for chunk in attempt_chunks:
+                    future = executor.submit(self._process_batch, chunk, cutting_piece, cutting_num_children, target_area, target_ratio)
+                    futures.append(future)
+
+                # Collect results as they complete
+                for future in as_completed(futures):
+                    batch_result = future.result()
+                    if batch_result:
+                        valid_attempts += 1
+
+                        # Update best scores for this batch
+                        split_children = batch_result['split_children']
+                        if batch_result['score'] < split_ratio_scores[split_children]:
+                            split_ratio_scores[split_children] = batch_result['score']
+
+                        if batch_result['score'] < best_score:
+                            best_score = batch_result['score']
+                            best_cut = (
+                                batch_result['cut_points'][0],
+                                batch_result['cut_points'][1],
+                                batch_result['small_piece'],
+                                batch_result['large_piece'],
+                                batch_result['ratio1'],
+                                batch_result['ratio2'],
+                                batch_result['angle'],
+                            )
+                            best_split_ratio = (split_children, batch_result['remaining_children'])
 
             # Phase 2: Use the best split ratio found, only vary angles
             if split_ratio_scores:
@@ -873,28 +846,40 @@ class Player10(Player):
                 angle_step = 360.0 / self.phrase_two_attempts
                 phase2_angles = [i * angle_step for i in range(self.phrase_two_attempts)]
 
-                # Process Phase 2 attempts sequentially
+                # Process Phase 2 attempts concurrently
                 phase2_attempts_to_try = [(best_ratio_from_phase1, angle, "phase2") for angle in phase2_angles]
-                print(f"  Phase 2: Processing {len(phase2_attempts_to_try)} attempts sequentially...")
-                for args in phase2_attempts_to_try:
-                    result = self._evaluate_attempt((
-                        args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
-                    ))
-                    if result:
-                        valid_attempts += 1
+                print(f"  Phase 2: Processing {len(phase2_attempts_to_try)} attempts concurrently with {self.num_of_processes} processes...")
 
-                        if result['score'] < best_score:
-                            best_score = result['score']
-                            best_cut = (
-                                result['cut_points'][0],
-                                result['cut_points'][1],
-                                result['small_piece'],
-                                result['large_piece'],
-                                result['ratio1'],
-                                result['ratio2'],
-                                result['angle'],
-                            )
-                            best_split_ratio = (result['split_children'], result['remaining_children'])
+                # Split Phase 2 attempts into chunks for each process
+                chunk_size_phase2 = max(1, len(phase2_attempts_to_try) // self.num_of_processes)
+                phase2_chunks = [phase2_attempts_to_try[i:i + chunk_size_phase2] for i in range(0, len(phase2_attempts_to_try), chunk_size_phase2)]
+
+                # Process Phase 2 chunks concurrently
+                with ProcessPoolExecutor(max_workers=self.num_of_processes) as executor:
+                    # Submit all chunks
+                    futures = []
+                    for chunk in phase2_chunks:
+                        future = executor.submit(self._process_batch, chunk, cutting_piece, cutting_num_children, target_area, target_ratio)
+                        futures.append(future)
+
+                    # Collect results as they complete
+                    for future in as_completed(futures):
+                        batch_result = future.result()
+                        if batch_result:
+                            valid_attempts += 1
+
+                            if batch_result['score'] < best_score:
+                                best_score = batch_result['score']
+                                best_cut = (
+                                    batch_result['cut_points'][0],
+                                    batch_result['cut_points'][1],
+                                    batch_result['small_piece'],
+                                    batch_result['large_piece'],
+                                    batch_result['ratio1'],
+                                    batch_result['ratio2'],
+                                    batch_result['angle'],
+                                )
+                                best_split_ratio = (batch_result['split_children'], batch_result['remaining_children'])
 
             # Phase 3: Fine-grained search around the best angle
             if best_cut is not None:
@@ -926,27 +911,39 @@ class Player10(Player):
 
                 phase3_attempts_to_try = [(best_ratio_from_phase1, angle, "phase3") for angle in phase3_angles]
 
-                # Process Phase 3 attempts sequentially
-                print(f"  Phase 3: Processing {len(phase3_attempts_to_try)} attempts sequentially...")
-                for args in phase3_attempts_to_try:
-                    result = self._evaluate_attempt((
-                        args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
-                    ))
-                    if result:
-                        valid_attempts += 1
+                # Process Phase 3 attempts concurrently
+                print(f"  Phase 3: Processing {len(phase3_attempts_to_try)} attempts concurrently with {self.num_of_processes} processes...")
 
-                        if result['score'] < best_score:
-                            best_score = result['score']
-                            best_cut = (
-                                result['cut_points'][0],
-                                result['cut_points'][1],
-                                result['small_piece'],
-                                result['large_piece'],
-                                result['ratio1'],
-                                result['ratio2'],
-                                result['angle'],
-                            )
-                            best_split_ratio = (result['split_children'], result['remaining_children'])
+                # Split Phase 3 attempts into chunks for each process
+                chunk_size_phase3 = max(1, len(phase3_attempts_to_try) // self.num_of_processes)
+                phase3_chunks = [phase3_attempts_to_try[i:i + chunk_size_phase3] for i in range(0, len(phase3_attempts_to_try), chunk_size_phase3)]
+
+                # Process Phase 3 chunks concurrently
+                with ProcessPoolExecutor(max_workers=self.num_of_processes) as executor:
+                    # Submit all chunks
+                    futures = []
+                    for chunk in phase3_chunks:
+                        future = executor.submit(self._process_batch, chunk, cutting_piece, cutting_num_children, target_area, target_ratio)
+                        futures.append(future)
+
+                    # Collect results as they complete
+                    for future in as_completed(futures):
+                        batch_result = future.result()
+                        if batch_result:
+                            valid_attempts += 1
+
+                            if batch_result['score'] < best_score:
+                                best_score = batch_result['score']
+                                best_cut = (
+                                    batch_result['cut_points'][0],
+                                    batch_result['cut_points'][1],
+                                    batch_result['small_piece'],
+                                    batch_result['large_piece'],
+                                    batch_result['ratio1'],
+                                    batch_result['ratio2'],
+                                    batch_result['angle'],
+                                )
+                                best_split_ratio = (batch_result['split_children'], batch_result['remaining_children'])
 
                 print(
                     f"    Phase 3 complete. Final best angle: {best_cut[6]:.1f}° with score {best_score:.3f}"

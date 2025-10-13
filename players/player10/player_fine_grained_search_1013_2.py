@@ -9,8 +9,8 @@ from players.player import Player
 from src.cake import Cake
 from shapely.ops import split
 
-COMPUTATION_RATIO = 1
-PHRASE_ONE_TOTAL_ATTEMPS = 60 * 9 * COMPUTATION_RATIO
+COMPUTATION_RATIO = 4
+PHRASE_ONE_TOTAL_ATTEMPS = 90 * 9 * COMPUTATION_RATIO
 PHRASE_TWO_TOTAL_ATTEMPS = 360 * 9 * COMPUTATION_RATIO
 PHRASE_THREE_TOTAL_ATTEMPS = 90 * 9 * COMPUTATION_RATIO
 PHRASE_THREE_STEP = 2
@@ -22,6 +22,7 @@ class Player10(Player):
         children: int,
         cake: Cake,
         cake_path: str | None,
+        phrase_three_attempts: int = 180,
         num_of_processes: int = 8,
     ) -> None:
         super().__init__(children, cake, cake_path)
@@ -33,7 +34,7 @@ class Player10(Player):
         self.phrase_two_attempts = PHRASE_TWO_TOTAL_ATTEMPS // (children - 1)
         # Number of different angles to try in phase 3 (fine-grained search)
         self.phrase_three_attempts = PHRASE_THREE_TOTAL_ATTEMPS // (children - 1)
-        # # Number of processes for concurrent search
+        # Number of processes for concurrent search
         # self.num_of_processes = min(num_of_processes, mp.cpu_count())
         self.num_of_processes = num_of_processes
 
@@ -283,16 +284,10 @@ class Player10(Player):
         ratio1 = self.cake.get_piece_ratio(small_piece)
         ratio2 = self.cake.get_piece_ratio(large_piece)
 
-        # Additional validation: ensure crust ratios are reasonably balanced between pieces
-        ratio_balance = abs(ratio1 - ratio2)
-        if ratio_balance > 0.2:  # Reject cuts where pieces have very different crust ratios
-            return None
-
-        # Score this cut (emphasize crust ratio consistency)
+        # Score this cut
         size_error = abs(small_piece.area - target_cut_area)
         ratio_error = abs(ratio1 - target_ratio) + abs(ratio2 - target_ratio)
-        # Increased weight on ratio consistency for better overall fairness
-        score = size_error * 2.0 + ratio_error * 5.0
+        score = size_error * 3.0 + ratio_error * 1.0
 
         return {
             'score': score,
@@ -416,7 +411,7 @@ class Player10(Player):
                     attempts_to_try.append((split_children, angle, "phase1"))
 
             # Phase 1: Random sample all split ratios (first half)
-            for _ in range(self.phrase_one_attempts):
+            for _ in range(self.phrase_one_attempts // 2):
                 split_children = random.randint(min_split, max_split)
                 angle = random.uniform(0, 180)
                 attempts_to_try.append((split_children, angle, "phase1"))

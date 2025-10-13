@@ -1,0 +1,100 @@
+Generated seed: 931061
+__________Cutting for 16 children_______
+TARGET AREA: 48.44 cm²
+TARGET CRUST RATIO: 0.592
+Strategy: Greedy cutting with random ratio+angle exploration
+
+
+=== Cut 1/15 ===
+Dividing piece for 16 children (area: 775.00)
+Exploring split ratios: 1/16 to 8/16
+  Phase 1: Processing 68 attempts across 8 processes...
+  Phase 1 complete. Best split ratio: 8/16
+  Phase 2: Trying 216 more angles with best ratio across 8 processes...
+  Phase 2 complete. Best angle: 90.0° with score 0.000
+  Phase 3: Fine-grained search around 90.0° with 54 attempts...
+  Search range: 86.7° to 93.3°
+    Phase 3 complete. Final best angle: 90.0° with score 0.000
+  Best cut (tried 26 valid attempts)
+  Split ratio: 8/16 and 8/16, angle=90.0°
+  Piece 1 (8 children): size=387.50 (target=387.50), crust_ratio=0.592
+  Piece 2 (8 children): size=387.50 (target=387.50), crust_ratio=0.592
+  Queue: 2 pieces for 16 total children
+
+=== Cut 2/15 ===
+Dividing piece for 8 children (area: 387.50)
+Exploring split ratios: 1/8 to 4/8
+  Phase 1: Processing 52 attempts across 8 processes...
+  Phase 1 complete. Best split ratio: 3/8
+  Phase 2: Trying 216 more angles with best ratio across 8 processes...
+  Phase 2 complete. Best angle: 21.7° with score 0.000
+  Phase 3: Fine-grained search around 21.7° with 54 attempts...
+  Search range: 18.3° to 25.0°
+    Phase 3 complete. Final best angle: 21.6° with score 0.000
+  Best cut (tried 24 valid attempts)
+  Split ratio: 3/8 and 5/8, angle=21.6°
+  Piece 1 (3 children): size=145.31 (target=145.31), crust_ratio=0.592
+  Piece 2 (5 children): size=242.19 (target=242.19), crust_ratio=0.592
+  Queue: 3 pieces for 16 total children
+
+=== Cut 3/15 ===
+Dividing piece for 8 children (area: 387.50)
+Exploring split ratios: 1/8 to 4/8
+  Phase 1: Processing 52 attempts across 8 processes...
+  Phase 1 complete. Best split ratio: 3/8
+  Phase 2: Trying 216 more angles with best ratio across 8 processes...
+  Phase 2 complete. Best angle: 338.3° with score 0.000
+  Phase 3: Fine-grained search around 338.3° with 54 attempts...
+  Search range: 335.0° to 341.7°
+    Phase 3 complete. Final best angle: 338.4° with score 0.000
+  Best cut (tried 24 valid attempts)
+  Split ratio: 3/8 and 5/8, angle=338.4°
+  Piece 1 (3 children): size=145.31 (target=145.31), crust_ratio=0.592
+  Piece 2 (5 children): size=242.19 (target=242.19), crust_ratio=0.592
+  Queue: 4 pieces for 16 total children
+
+=== Cut 4/15 ===
+Dividing piece for 5 children (area: 242.19)
+Exploring split ratios: 1/5 to 2/5
+  Phase 1: Processing 44 attempts across 8 processes...
+  Phase 1 complete. Best split ratio: 1/5
+  Phase 2: Trying 216 more angles with best ratio across 8 processes...
+  Phase 2 complete. Best angle: 35.0° with score 0.361
+  Phase 3: Fine-grained search around 35.0° with 54 attempts...
+  Search range: 31.7° to 38.3°
+    Phase 3 complete. Final best angle: 35.1° with score 0.051
+  Best cut (tried 23 valid attempts)
+  Split ratio: 1/5 and 4/5, angle=35.1°
+  Piece 1 (1 children): size=48.43 (target=48.44), crust_ratio=0.599
+  Piece 2 (4 children): size=193.75 (target=193.75), crust_ratio=0.590
+  Queue: 5 pieces for 16 total children
+
+=== Cut 5/15 ===
+Dividing piece for 5 children (area: 242.19)
+Exploring split ratios: 1/5 to 2/5
+  Phase 1: Processing 44 attempts across 8 processes...
+  Phase 1 complete. Best split ratio: 1/5
+  Phase 2: Trying 216 more angles with best ratio across 8 processes...
+  Phase 2 complete. Best angle: 325.0° with score 0.361
+  Phase 3: Fine-grained search around 325.0° with 54 attempts...
+  Search range: 321.7° to 328.3°
+    Phase 3 complete. Final best angle: 324.9° with score 0.051
+Traceback (most recent call last):
+  File "/Users/yuanyunchen/Desktop/GitHub/birthday_cake/main.py", line 6, in <module>
+    game = Game(args)
+  File "/Users/yuanyunchen/Desktop/GitHub/birthday_cake/src/game.py", line 338, in __init__
+    self.play()
+    ~~~~~~~~~^^
+  File "/Users/yuanyunchen/Desktop/GitHub/birthday_cake/src/game.py", line 194, in play
+    raise e
+  File "/Users/yuanyunchen/Desktop/GitHub/birthday_cake/src/game.py", line 184, in play
+    moves = self.player.get_cuts()
+  File "/Users/yuanyunchen/Desktop/GitHub/birthday_cake/players/player10/player.py", line 336, in get_cuts
+    return self._greedy_ratio_angle_cutting(target_area, target_ratio)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuanyunchen/Desktop/GitHub/birthday_cake/players/player10/player.py", line 616, in _greedy_ratio_angle_cutting
+    cake_copy.cut(from_p, to_p)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/Users/yuanyunchen/Desktop/GitHub/birthday_cake/src/cake.py", line 240, in cut
+    raise Exception(f"invalid cut: {reason}")
+Exception: invalid cut: cut is not within cake
