@@ -5,7 +5,7 @@ from shapely.geometry import Polygon, LineString, Point
 from shapely import MultiLineString, intersection
 from shapely.ops import split
 from typing import cast, List, Optional
-from math import hypot, pi, cos, tan, sin, isclose, floor, ceil
+from math import hypot, pi, cos, sin, isclose, floor, ceil
 import numpy as np
 from joblib import Parallel, delayed
 import src.constants as c
