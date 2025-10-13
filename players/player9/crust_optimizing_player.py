@@ -1,4 +1,4 @@
-from shapely import Point, LineString, Polygon, MultiPoint, wkb
+from shapely import Point, LineString, Polygon, MultiPoint
 # from shapely.geometry import Polygon
 from shapely.ops import split
 from typing import cast
