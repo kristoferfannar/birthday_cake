@@ -1,10 +1,11 @@
-from shapely import Point, Polygon
+from shapely import Point, Polygon, LineString
 from shapely.geometry import LineString as LS
 from players.player import Player, PlayerException
 from src.cake import Cake
 import src.constants as c
 import math
 import time
+from random import shuffle
 from typing import List, Tuple, Optional
 
 
@@ -58,66 +59,99 @@ class Player5(Player):
     def _time_exceeded(self, start: float) -> bool:
         return (time.perf_counter() - start) >= self.time_budget_sec
 
+    def find_random_cut(self) -> tuple[Point, Point]:
+        """Find a random cut.
+
+        Algorithm:
+        1. Find the largest piece of cake
+        2. Find the lines outlining that piece
+        3. Find two random lines whos centroids make
+           a line that will cut the piece into two
+        """
+        largest_piece = max(self.cake.get_pieces(), key=lambda piece: piece.area)
+        vertices = list(largest_piece.exterior.coords[:-1])
+        lines = [
+            LineString([vertices[i], vertices[i + 1]]) for i in range(len(vertices) - 1)
+        ]
+
+        # introduce some sort of randomness to the player
+        idxs = list(range(len(lines)))
+        shuffle(idxs)
+
+        for i in idxs:
+            jdxs = list(range(i + 1, len(lines)))
+            shuffle(jdxs)
+            for j in jdxs:
+                from_p = lines[i].centroid
+                to_p = lines[j].centroid
+
+                is_valid, _ = self.cake.cut_is_valid(from_p, to_p)
+                if is_valid:
+                    return (from_p, to_p)
+
+        raise PlayerException("could not find random move :(")
+
+    def get_cuts_original(self) -> list[tuple[Point, Point]]:
+        moves: list[tuple[Point, Point]] = []
+
+        for _ in range(self.children - 1):
+            from_p, to_p = self.find_random_cut()
+            moves.append((from_p, to_p))
+
+            # simulate cut on our cake to ensure we have a
+            # valid representation of our current environment
+            self.cake.cut(from_p, to_p)
+
+        return moves
+
     def get_cuts(self) -> List[Tuple[Point, Point]]:
-        if not self._validate_constraints():
-            raise PlayerException("Cake does not meet constraints")
-
-        start_time = time.perf_counter()
         temp_cake = self.cake.copy()
-        moves: List[Tuple[Point, Point]] = []
+        try:
+            if not self._validate_constraints():
+                raise PlayerException("Cake does not meet constraints")
 
-        total_area = temp_cake.get_area()
-        if self.children <= 0:
-            raise PlayerException("Invalid number of children")
-        A_star = total_area / self.children
+            start_time = time.perf_counter()
+            moves: List[Tuple[Point, Point]] = []
 
-        # Running deviations (inform the dynamic target "desired")
-        S = 0.0
-        S_prop = 0.0
+            total_area = temp_cake.get_area()
+            if self.children <= 0:
+                raise PlayerException("Invalid number of children")
+            A_star = total_area / self.children
 
-        for i in range(self.children - 1):
-            if self._time_exceeded(start_time):
-                return moves
+            # Running deviations (inform the dynamic target "desired")
+            S = 0.0
+            S_prop = 0.0
 
-            # Largest remaining piece
-            piece = max(temp_cake.get_pieces(), key=lambda p: p.area)
-            piece = self._clean(piece)
+            for i in range(self.children - 1):
+                if self._time_exceeded(start_time):
+                    return moves
 
-            r = self.children - i
-            # Dynamic desired area for this cut (keeps feasibility)
-            desired = A_star - (S / r)
-            desired_prop = self.P_star - (S_prop / r)
+                # Largest remaining piece
+                piece = max(temp_cake.get_pieces(), key=lambda p: p.area)
+                piece = self._clean(piece)
 
-            # Numerical clamps
-            remaining = r
-            base_eps = max(1e-6, 1e-4 * piece.area)
-            tight_eps = max(2e-6, 8e-4 * piece.area)
-            eps = tight_eps if remaining <= 3 else base_eps
-            desired = max(eps, min(desired, piece.area - eps))
+                r = self.children - i
+                # Dynamic desired area for this cut (keeps feasibility)
+                desired = A_star - (S / r)
+                desired_prop = self.P_star - (S_prop / r)
 
-            # Search tolerance for hitting desired area
-            if remaining <= 3:
-                tol = max(1e-4, self.area_tol * 0.6)
-            elif remaining == 4:
-                tol = max(2e-4, self.area_tol * 0.8)
-            else:
-                tol = self.area_tol
+                # Numerical clamps
+                remaining = r
+                base_eps = max(1e-6, 1e-4 * piece.area)
+                tight_eps = max(2e-6, 8e-4 * piece.area)
+                eps = tight_eps if remaining <= 3 else base_eps
+                desired = max(eps, min(desired, piece.area - eps))
 
-            band = self.per_piece_band  # strict acceptance band around desired
+                # Search tolerance for hitting desired area
+                if remaining <= 3:
+                    tol = max(1e-4, self.area_tol * 0.6)
+                elif remaining == 4:
+                    tol = max(2e-4, self.area_tol * 0.8)
+                else:
+                    tol = self.area_tol
 
-            cand = self._best_segment_for_target_global(
-                temp_cake,
-                piece,
-                desired,
-                tol,
-                desired_prop,
-                A_star,
-                band,
-                start_time,
-                remaining,
-            )
-            if cand is None:
-                # escalate to hard mode search
+                band = self.per_piece_band  # strict acceptance band around desired
+
                 cand = self._best_segment_for_target_global(
                     temp_cake,
                     piece,
@@ -128,37 +162,54 @@ class Player5(Player):
                     band,
                     start_time,
                     remaining,
-                    hard_mode=True,
                 )
+                if cand is None:
+                    # escalate to hard mode search
+                    cand = self._best_segment_for_target_global(
+                        temp_cake,
+                        piece,
+                        desired,
+                        tol,
+                        desired_prop,
+                        A_star,
+                        band,
+                        start_time,
+                        remaining,
+                        hard_mode=True,
+                    )
 
-            if cand is None:
+                if cand is None:
+                    raise PlayerException(
+                        f"Could not find a band-compliant cut at step {i + 1} "
+                        f"(band ±{band:.4f} around desired={desired:.4f})."
+                    )
+
+                a, b, produced_A, produced_prop = cand
+
+                # Commit the exact endpoints used by the preview
+                moves.append((a, b))
+                temp_cake.cut(a, b)
+
+                # Update residuals from produced piece
+                S += produced_A - A_star
+                if produced_prop is not None:
+                    S_prop += produced_prop - self.P_star
+
+            # Final global span check
+            areas = [p.area for p in temp_cake.get_pieces()]
+            if not areas:
+                raise PlayerException("No pieces after cutting?")
+            spread = max(areas) - min(areas)
+            if spread > (self.same_size_tol + self.num_tol):
                 raise PlayerException(
-                    f"Could not find a band-compliant cut at step {i + 1} "
-                    f"(band ±{band:.4f} around desired={desired:.4f})."
+                    f"Size tolerance breached: spread={spread:.4f} > {self.same_size_tol} (+{self.num_tol} tol)"
                 )
 
-            a, b, produced_A, produced_prop = cand
+            return moves
+        except Exception:
+            self.cake = temp_cake
+            return self.get_cuts_original()
 
-            # Commit the exact endpoints used by the preview
-            moves.append((a, b))
-            temp_cake.cut(a, b)
-
-            # Update residuals from produced piece
-            S += produced_A - A_star
-            if produced_prop is not None:
-                S_prop += produced_prop - self.P_star
-
-        # Final global span check
-        areas = [p.area for p in temp_cake.get_pieces()]
-        if not areas:
-            raise PlayerException("No pieces after cutting?")
-        spread = max(areas) - min(areas)
-        if spread > (self.same_size_tol + self.num_tol):
-            raise PlayerException(
-                f"Size tolerance breached: spread={spread:.4f} > {self.same_size_tol} (+{self.num_tol} tol)"
-            )
-
-        return moves
 
     def _best_segment_for_target_global(
         self,
