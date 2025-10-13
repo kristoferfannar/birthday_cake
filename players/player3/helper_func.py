@@ -87,7 +87,7 @@ def binary_search_cut(cake: Cake, xy1: Point, target_area: float, largest_piece:
             r = mid
 
     # reduce threshold
-    if best_xy2 and best_area_diff < 0.24:
+    if best_xy2 and best_area_diff < 0.20:
         return (best_xy2, best_area_diff)
 
     return None
