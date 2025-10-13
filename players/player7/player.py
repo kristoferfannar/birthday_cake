@@ -3,6 +3,11 @@ from shapely import Point, wkb
 from players.player import Player, PlayerException
 from src.cake import Cake
 
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import math
+import os
+
 
 def copy_geom(g):
     return wkb.loads(wkb.dumps(g))
@@ -20,8 +25,8 @@ class Player7(Player):
         self.moves: list[tuple[Point, Point]] = []
 
         # Configurable parameters
-        self.top_k_cuts = 5  # Number of top cuts to optimize
-        self.optimization_iterations = 100  # Number of optimization iterations
+        self.top_k_cuts = 12  # Number of top cuts to optimize
+        self.optimization_iterations = 50  # Number of optimization iterations
         self.max_area_deviation = 0.25  # Maximum area deviation tolerance
         self.sample_step = 1  # Step size for sample points
 
@@ -97,13 +102,8 @@ class Player7(Player):
             dy = y2 - y1
             length = (dx * dx + dy * dy) ** 0.5
 
-            # Add midpoint
-            mx = x1 + 0.5 * dx
-            my = y1 + 0.5 * dy
-            raw_points.append((mx, my))
-
             # Add points every `step` cm along the edge, excluding endpoints
-            if step > 0 and length > 0:
+            if step > 0 and length > step * 3:
                 k = 1
                 while k * step < length:
                     t = (k * step) / length
@@ -111,6 +111,11 @@ class Player7(Player):
                     py = y1 + t * dy
                     raw_points.append((px, py))
                     k += 1
+            elif length > 1:
+                # Add midpoint
+                mx = x1 + 0.5 * dx
+                my = y1 + 0.5 * dy
+                raw_points.append((mx, my))
 
         # Deduplicate points that may coincide (e.g., when midpoint aligns with a step)
         seen = set()
@@ -136,7 +141,7 @@ class Player7(Player):
         sample_points = self.get_sample_points(piece)
         print(f"Found {len(sample_points)} sample points")
 
-        min_len = 1.0
+        min_len = 2.0
         # Collect all valid cuts with their scores
         candidate_cuts = []
         for i in range(len(sample_points)):
@@ -165,18 +170,36 @@ class Player7(Player):
         top_cuts = candidate_cuts[: self.top_k_cuts]
 
         # Optimize each of the top cuts
+        def _batch_optimize(batch):
+            best = (float("inf"), None, None)  # (score, from_p, to_p)
+            for original_score, from_p, to_p in batch:
+                ofp, otp, oscore = self.optimize_cut(
+                    from_p,
+                    to_p,
+                    iterations=self.optimization_iterations,
+                    best_score=original_score,
+                )
+                if oscore < best[0]:
+                    best = (oscore, ofp, otp)
+            return best  # (score, from_p, to_p)
+
         best_optimized_score = float("inf")
         best_optimized_cut = None
 
-        for original_score, from_p, to_p in top_cuts:
-            optimized_from_p, optimized_to_p = self.optimize_cut(
-                from_p, to_p, iterations=self.optimization_iterations
-            )
-            optimized_score = self.evaluate_cut(optimized_from_p, optimized_to_p)
+        workers = min(4, os.cpu_count() or 2)
+        n = len(top_cuts)
+        batch_size = max(1, math.ceil(n / workers))
+        batches = [top_cuts[i : i + batch_size] for i in range(0, n, batch_size)]
 
-            if optimized_score < best_optimized_score:
-                best_optimized_score = optimized_score
-                best_optimized_cut = (optimized_from_p, optimized_to_p)
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(_batch_optimize, b) for b in batches]
+            for fut in as_completed(futures):
+                score, ofp, otp = (
+                    fut.result()
+                )  # <-- get the (score, ofp, otp) tuple here
+                if score < best_optimized_score:
+                    best_optimized_score = score
+                    best_optimized_cut = (ofp, otp)
 
         return best_optimized_cut
 
@@ -207,11 +230,14 @@ class Player7(Player):
             return 0.0, 0.0
 
     def optimize_cut(
-        self, from_p: Point, to_p: Point, iterations: int = 20
+        self,
+        from_p: Point,
+        to_p: Point,
+        iterations: int = 20,
+        best_score: float = float("inf"),
     ) -> tuple[Point, Point]:
         """Optimize a cut by moving points along the boundary direction."""
         best_cut = (from_p, to_p)
-        best_score = self.evaluate_cut(from_p, to_p)
 
         # If the initial cut is invalid, return it as-is
         if best_score == float("inf"):
@@ -282,11 +308,11 @@ class Player7(Player):
             if not improved:
                 continue
 
-        return best_cut
+        return best_cut[0], best_cut[1], best_score
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         self.moves.clear()  # Reset moves list
-
+        start = time.time()
         for cut in range(self.children - 1):
             print(f"Finding cut number {cut + 1}")
             optimized_from_p, optimized_to_p = self.find_best_cut()
@@ -296,4 +322,5 @@ class Player7(Player):
             # Simulate the cut on our cake to maintain accurate state
             self.cake.cut(optimized_from_p, optimized_to_p)
 
+        print(f"Total cutting time: {time.time() - start:.2f} seconds")
         return self.moves

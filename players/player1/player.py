@@ -165,8 +165,7 @@ def _bisection_offset_for_alpha(P: Polygon, alpha: float, theta: float) -> Optio
         if left < target:
             lo = mid
         else:
-            hi = mid
-    return 0.5 * (lo + hi)
+            return None
 
 
 def _solve_alpha_line(
