@@ -150,8 +150,7 @@ class Cake:
         return touched_pieces
 
     def __cut_is_within_cake(self, cut: LineString) -> bool:
-        outside = cut.difference(self.exterior_shape.buffer(c.TOL * 2))
-        return outside.is_empty
+        return self.exterior_shape.buffer(c.TOL * 2).contains(cut)
 
     def get_cuttable_piece(self, from_p: Point, to_p: Point):
         a_pieces = self.get_intersecting_pieces_from_point(from_p)
