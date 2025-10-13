@@ -611,7 +611,7 @@ class Player6(Player):
         # If difference from target area < 0.125, treat it as equal → rely on ratio
         if area_score < 0.245:
             area_score = 0.0
-        if ratio_score <= 0.025:
+        if ratio_score <= 0.015:
             ratio_score = 0.0
 
         # adding line length as the last factor as after dividing area equally we would love to have more interior !
