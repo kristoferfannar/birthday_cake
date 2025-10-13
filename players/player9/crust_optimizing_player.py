@@ -284,14 +284,16 @@ class CrustOptimizingPlayer(Player):
     def find_actual_cuts(self, line, piece):
         intersection = line.intersection(piece.boundary)
 
-        if intersection.is_empty or intersection.geom_type == "Point":
+        if intersection.is_empty:
             return False, 0, 0
+        elif intersection.geom_type == "Point":
+            return False, 0, 0
+
         points = []
-        if intersection.geom_type == "MultiPoint":
+        if intersection.geom_type == "LineString":
+            return False, 0, 0
+        elif intersection.geom_type == "MultiPoint":
             points = list(intersection.geoms)
-        elif intersection.geom_type == "LineString":
-            coords = list(intersection.coords)
-            points = [Point(c) for c in coords]
 
         if len(points) < 2:
             return False, 0, 0
