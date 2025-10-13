@@ -1,6 +1,5 @@
 from shapely import Point, Polygon
 from shapely.geometry import LineString as LS
-from shapely.ops import split as geom_split
 from players.player import Player, PlayerException
 from src.cake import Cake
 import src.constants as c
@@ -48,7 +47,9 @@ class Player5(Player):
             self.inner_cake = self._clean(inner) if not inner.is_empty else Polygon()
             self.total_area = outer.area if outer is not None else 0.0
             crust_area_total = max(0.0, self.total_area - self.inner_cake.area)
-            self.P_star = (crust_area_total / self.total_area) if self.total_area > 0 else 0.0
+            self.P_star = (
+                (crust_area_total / self.total_area) if self.total_area > 0 else 0.0
+            )
         except Exception:
             self.inner_cake = Polygon()
             self.total_area = self.cake.get_area()
@@ -105,12 +106,29 @@ class Player5(Player):
             band = self.per_piece_band  # strict acceptance band around desired
 
             cand = self._best_segment_for_target_global(
-                temp_cake, piece, desired, tol, desired_prop, A_star, band, start_time, remaining
+                temp_cake,
+                piece,
+                desired,
+                tol,
+                desired_prop,
+                A_star,
+                band,
+                start_time,
+                remaining,
             )
             if cand is None:
                 # escalate to hard mode search
                 cand = self._best_segment_for_target_global(
-                    temp_cake, piece, desired, tol, desired_prop, A_star, band, start_time, remaining, hard_mode=True
+                    temp_cake,
+                    piece,
+                    desired,
+                    tol,
+                    desired_prop,
+                    A_star,
+                    band,
+                    start_time,
+                    remaining,
+                    hard_mode=True,
                 )
 
             if cand is None:
@@ -128,7 +146,7 @@ class Player5(Player):
             # Update residuals from produced piece
             S += produced_A - A_star
             if produced_prop is not None:
-                S_prop += (produced_prop - self.P_star)
+                S_prop += produced_prop - self.P_star
 
         # Final global span check
         areas = [p.area for p in temp_cake.get_pieces()]
@@ -146,7 +164,7 @@ class Player5(Player):
         self,
         temp_cake_obj: Cake,
         polygon: Polygon,
-        target_area: float,     # this is *desired* in caller
+        target_area: float,  # this is *desired* in caller
         area_tol: float,
         desired_prop: float,
         A_star: float,
@@ -181,13 +199,14 @@ class Player5(Player):
 
         best_in_band: Optional[Tuple[Point, Point, float, float]] = None  # (a,b,A,prop)
         best_prop_delta = float("inf")
-        best_area_tuple: Optional[Tuple[Point, Point, float, Optional[float]]] = None
         best_err = float("inf")
 
         for seg in self._vertex_pair_chords(poly):
             if self._time_exceeded(start_time):
                 break
-            cand = self._evaluate_candidate_global(temp_cake_obj, poly, seg, target_area, A_star, band)
+            cand = self._evaluate_candidate_global(
+                temp_cake_obj, poly, seg, target_area, A_star, band
+            )
             if cand is None:
                 continue
             a, b, A, err_desired, prop = cand
@@ -201,15 +220,25 @@ class Player5(Player):
             else:
                 if err_desired < best_err:
                     best_err = err_desired
-                    best_area_tuple = (a, b, A, None)
 
         if best_in_band is not None:
             return (best_in_band[0], best_in_band[1], best_in_band[2], best_in_band[3])
 
         # 2) Directional sweeps + refinement (global scored)
         cand2 = self._search_direction_adaptive_global(
-            temp_cake_obj, poly, target_area, area_tol, desired_prop, A_star, band, start_time, remaining,
-            refine_iters=refine_iters, local_count=local, coarse_count=coarse, ndirs=ndirs
+            temp_cake_obj,
+            poly,
+            target_area,
+            area_tol,
+            desired_prop,
+            A_star,
+            band,
+            start_time,
+            remaining,
+            refine_iters=refine_iters,
+            local_count=local,
+            coarse_count=coarse,
+            ndirs=ndirs,
         )
         if cand2 is not None:
             return cand2
@@ -220,7 +249,7 @@ class Player5(Player):
         self,
         cake: Cake,
         poly: Polygon,
-        target_area: float,   # desired
+        target_area: float,  # desired
         area_tol: float,
         desired_prop: float,
         A_star: float,
@@ -266,7 +295,6 @@ class Player5(Player):
             prev_signed = None
             best_s = None
             best_err_dir = float("inf")
-            best_area_tuple_dir = None
 
             # Coarse scan
             for j in range(coarse_count):
@@ -277,7 +305,9 @@ class Player5(Player):
                 x0, y0 = cx + s * nx, cy + s * ny
                 a_inf = Point(x0 - ux * L, y0 - uy * L)
                 b_inf = Point(x0 + ux * L, y0 + uy * L)
-                cand = self._best_chord_on_line_global(cake, poly, LS([a_inf, b_inf]), target_area, A_star, band)
+                cand = self._best_chord_on_line_global(
+                    cake, poly, LS([a_inf, b_inf]), target_area, A_star, band
+                )
                 if cand is None:
                     continue
                 a, b, A, err_desired, prop = cand
@@ -292,18 +322,31 @@ class Player5(Player):
                 else:
                     if err_desired < best_err_dir:
                         best_err_dir = err_desired
-                        best_area_tuple_dir = (a, b, A, None)
                         best_s = s
 
                 signed = A - target_area
                 if prev_s is not None and prev_signed is not None:
-                    if signed == 0 or prev_signed == 0 or (signed > 0) != (prev_signed > 0):
+                    if (
+                        signed == 0
+                        or prev_signed == 0
+                        or (signed > 0) != (prev_signed > 0)
+                    ):
                         ref = self._refine_between_offsets_global(
-                            cake, poly, (ux, uy), (nx, ny),
-                            cx, cy, L,
-                            prev_s, s,
-                            target_area, area_tol, A_star, band, start_time,
-                            iters=refine_iters
+                            cake,
+                            poly,
+                            (ux, uy),
+                            (nx, ny),
+                            cx,
+                            cy,
+                            L,
+                            prev_s,
+                            s,
+                            target_area,
+                            area_tol,
+                            A_star,
+                            band,
+                            start_time,
+                            iters=refine_iters,
                         )
                         if ref is not None and abs(ref[2] - target_area) <= band:
                             return ref
@@ -323,7 +366,9 @@ class Player5(Player):
                     x0, y0 = cx + s * nx, cy + s * ny
                     a_inf = Point(x0 - ux * L, y0 - uy * L)
                     b_inf = Point(x0 + ux * L, y0 + uy * L)
-                    cand = self._best_chord_on_line_global(cake, poly, LS([a_inf, b_inf]), target_area, A_star, band)
+                    cand = self._best_chord_on_line_global(
+                        cake, poly, LS([a_inf, b_inf]), target_area, A_star, band
+                    )
                     if cand is None:
                         continue
                     a, b, A, err_desired, prop = cand
@@ -347,7 +392,7 @@ class Player5(Player):
         L: float,
         s_lo: float,
         s_hi: float,
-        target_area: float,   # desired
+        target_area: float,  # desired
         area_tol: float,
         A_star: float,
         band: float,
@@ -361,7 +406,9 @@ class Player5(Player):
             x0, y0 = cx + s * nx, cy + s * ny
             a_inf = Point(x0 - ux * L, y0 - uy * L)
             b_inf = Point(x0 + ux * L, y0 + uy * L)
-            return self._best_chord_on_line_global(cake, poly, LS([a_inf, b_inf]), target_area, A_star, band)
+            return self._best_chord_on_line_global(
+                cake, poly, LS([a_inf, b_inf]), target_area, A_star, band
+            )
 
         lo, hi = s_lo, s_hi
         best = None
@@ -378,7 +425,7 @@ class Player5(Player):
                 hi = mid
                 continue
             a, b, A, err_desired, prop = cand
-            if abs(A - target_area) <= band:   # band around desired
+            if abs(A - target_area) <= band:  # band around desired
                 pv = 0.0 if prop is None else prop
                 return (a, b, A, pv)
             if err_desired < best_err:
@@ -392,7 +439,13 @@ class Player5(Player):
         return best
 
     def _best_chord_on_line_global(
-        self, cake_obj: Cake, poly: Polygon, inf_line: LS, target_area: float, A_star: float, band: float
+        self,
+        cake_obj: Cake,
+        poly: Polygon,
+        inf_line: LS,
+        target_area: float,
+        A_star: float,
+        band: float,
     ) -> Optional[Tuple[Point, Point, float, float, Optional[float]]]:
         try:
             inter = poly.intersection(inf_line)
@@ -408,7 +461,9 @@ class Player5(Player):
         best = None
         best_err = float("inf")
         for chord in chords:
-            cand = self._evaluate_candidate_global(cake_obj, poly, chord, target_area, A_star, band)
+            cand = self._evaluate_candidate_global(
+                cake_obj, poly, chord, target_area, A_star, band
+            )
             if cand is None:
                 continue
             a, b, A, err_desired, prop = cand
@@ -421,7 +476,13 @@ class Player5(Player):
         return best
 
     def _evaluate_candidate_global(
-        self, cake_obj: Cake, poly: Polygon, seg: LS, target_area: float, A_star: float, band: float
+        self,
+        cake_obj: Cake,
+        poly: Polygon,
+        seg: LS,
+        target_area: float,
+        A_star: float,
+        band: float,
     ) -> Optional[Tuple[Point, Point, float, float, Optional[float]]]:
         """
         Validate & snap segment, forbid multi-piece touching, then PREVIEW on a clone:
@@ -468,7 +529,11 @@ class Player5(Player):
             err_desired = abs(A - target_area)
 
             # crust proportion (secondary)
-            prop = self._prop_of(self._clean(produced)) if self.inner_cake is not None else None
+            prop = (
+                self._prop_of(self._clean(produced))
+                if self.inner_cake is not None
+                else None
+            )
 
             return (a, b, A, err_desired, prop)
         except Exception:
@@ -480,7 +545,7 @@ class Player5(Player):
     def _direction_count(self, poly: Polygon, remaining: int) -> int:
         nverts = len(list(poly.exterior.coords)) - 1 if poly and poly.exterior else 0
         if nverts > 120:
-            nd = max(32, self.NUM_DIRECTIONS // 2)   # fewer on very complex
+            nd = max(32, self.NUM_DIRECTIONS // 2)  # fewer on very complex
         elif poly.area < 0.05 * max(self.total_area, 1e-9):
             nd = min(64, self.NUM_DIRECTIONS + 16)  # a bit more on small
         else:
@@ -500,7 +565,6 @@ class Player5(Player):
         if remaining <= 3:
             return min(48, self.OFFSETS_LOCAL + 12)
         return self.OFFSETS_LOCAL
-
 
     def _direction_set(self, poly: Polygon) -> List[Tuple[float, float]]:
         nverts = len(list(poly.exterior.coords)) - 1 if poly and poly.exterior else 0
@@ -547,7 +611,6 @@ class Player5(Player):
     def _snap_to_cake_perimeter(
         self, cake_obj: Cake, seg: LS
     ) -> Optional[Tuple[Point, Point]]:
-
         try:
             outer = cake_obj.exterior_shape
             if outer is None or outer.is_empty:
@@ -589,7 +652,9 @@ class Player5(Player):
                 except Exception:
                     overlap_len = 0.0
                 L_len = L.length
-                if (overlap_len > best_overlap) or (overlap_len == best_overlap and L_len < best_length):
+                if (overlap_len > best_overlap) or (
+                    overlap_len == best_overlap and L_len < best_length
+                ):
                     best_overlap = overlap_len
                     best_length = L_len
                     best_line = L
@@ -619,7 +684,10 @@ class Player5(Player):
                 return (pt.distance(a) <= 1e-10) or (pt.distance(b) <= 1e-10)
 
             for p in cake_obj.get_pieces():
-                if p.equals(poly) or (abs(p.area - poly.area) < 1e-9 and p.symmetric_difference(poly).area < 1e-9):
+                if p.equals(poly) or (
+                    abs(p.area - poly.area) < 1e-9
+                    and p.symmetric_difference(poly).area < 1e-9
+                ):
                     continue
 
                 inter = p.intersection(seg)
@@ -635,7 +703,11 @@ class Player5(Player):
                     if not is_endpoint(pt):
                         return True
                     try:
-                        if outer is None or outer.is_empty or not outer.boundary.covers(pt):
+                        if (
+                            outer is None
+                            or outer.is_empty
+                            or not outer.boundary.covers(pt)
+                        ):
                             return True
                     except Exception:
                         return True
@@ -643,7 +715,11 @@ class Player5(Player):
                 if inter.geom_type in ("MultiPoint", "GeometryCollection"):
                     for g in getattr(inter, "geoms", []):
                         if g.geom_type == "Point":
-                            if (not is_endpoint(g)) or (outer is None or outer.is_empty or not outer.boundary.covers(g)):
+                            if (not is_endpoint(g)) or (
+                                outer is None
+                                or outer.is_empty
+                                or not outer.boundary.covers(g)
+                            ):
                                 return True
                         elif hasattr(g, "length") and g.length > 1e-12:
                             return True
@@ -673,10 +749,14 @@ class Player5(Player):
 
     def _validate_constraints(self) -> bool:
         area_per_child = self.cake.get_area() / self.children
-        if not (c.MIN_PIECE_AREA_PER_CHILD <= area_per_child <= c.MAX_PIECE_AREA_PER_CHILD):
+        if not (
+            c.MIN_PIECE_AREA_PER_CHILD <= area_per_child <= c.MAX_PIECE_AREA_PER_CHILD
+        ):
             return False
         try:
-            interior_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
+            interior_ratio = (
+                self.cake.interior_shape.area / self.cake.exterior_shape.area
+            )
         except Exception:
             return False
         if interior_ratio < getattr(c, "MIN_CAKE_INTERIOR_RATIO", 0.5):
