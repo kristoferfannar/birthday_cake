@@ -9,7 +9,7 @@ class Player10(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
         # is area within 0.5 cm of target?
-        self.target_area_tolerance = 0.5
+        self.target_area_tolerance = 0.005
 
     def find_line(self, x: float, peice: Polygon):
         """Make a line through some x coordinate that gices equal areas"""
