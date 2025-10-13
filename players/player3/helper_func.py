@@ -40,7 +40,7 @@ def binary_search_cut(
     angle = math.atan2(rise, run)
 
     xy2 = find_point(xy1, angle, largest_piece)
-    
+
     if xy2 is None:
         return None
     # calculate initial angle with initial xy2
