@@ -1,159 +1,467 @@
-from collections import Counter
+from __future__ import annotations
+from typing import List, Tuple, Optional
+import math
 
-from models.player import GameContext, Item, Player, PlayerSnapshot
+from shapely.geometry import (
+    Point as ShyPoint,
+    Polygon,
+    MultiPolygon,
+    GeometryCollection,
+    LineString,
+    MultiLineString,
+)
+from shapely.ops import split as sh_split, nearest_points
 
-# import uuid
-# import random
+from players.player import Player
+from src.cake import Cake
 
-
-class Player6(Player):
-	def init(self, snapshot: PlayerSnapshot, ctx: GameContext) -> None:  # noqa: F821
-		super().init(snapshot, ctx)
-
-	def __calculate_freshness_score(self, history, i: int, current_item: Item) -> float:
-		if i == 0 or history[i - 1] is not None:
-			return 0.0
-
-		prior_items = (item for item in history[max(0, i - 6) : i - 1] if item is not None)
-		prior_subjects = {s for item in prior_items for s in item.subjects}
-
-		novel_subjects = [s for s in current_item.subjects if s not in prior_subjects]
-
-		return float(len(novel_subjects))
-
-	def __calculate_coherence_score(self, history, i: int, current_item: Item) -> float:
-		context_items = []
-
-		for j in range(i - 1, max(-1, i - 4), -1):
-			if history[j] is None:
-				break
-			context_items.append(history[j])
-
-		for j in range(i + 1, min(len([history]), i + 4)):
-			if history[j] is None:
-				break
-			context_items.append(history[j])
-
-		context_subject_counts = Counter(s for item in context_items for s in item.subjects)
-		score = 0.0
-
-		if not all(subject in context_subject_counts for subject in current_item.subjects):
-			score -= 1.0
-
-		if all(context_subject_counts.get(s, 0) >= 2 for s in current_item.subjects):
-			score += 1.0
-
-		return score
-
-	def __calculate_nonmonotonousness_score(
-		self, history, i: int, current_item: Item, repeated: bool
-	) -> float:
-		if repeated:
-			return -1.0
-
-		if i < 3:
-			return 0.0
-
-		last_three_items = [history[j] for j in range(i - 3, i)]
-		if all(
-			item and any(s in item.subjects for s in current_item.subjects)
-			for item in last_three_items
-		):
-			return -1.0
-
-		return 0.0
-	
-	def __calculate_preference_score(self, current_item: Item):
-		item_score = 0.0
-		preferences = self.preferences
-		if current_item is None:
-			return item_score
-
-		bonuses = [
-			1 - preferences.index(s) / len(preferences)
-			for s in current_item.subjects
-			if s in preferences
-		]
-		if bonuses:
-			item_score += sum(bonuses) / len(bonuses)
-
-		return item_score
-
-	def __calculate_individual_score(self, current_item: Item) -> float:
-		return current_item.importance
-
-	def propose_item(self, history: list[Item]) -> Item | None:
-		weight_nonMon = 2.0
-		best_item: Item = None
-		best_score = -0.1
-		n = len(history)
-		if n == 0:
-			print(n)
-			try:
-				one_subject_items = [it for it in self.memory_bank if len(it.subjects) == 1]
-				if one_subject_items:
-					def rank1(it):
-						s = it.subjects[0]
-						return self.preferences.index(s) if s in self.preferences else float("inf")
-					return min(one_subject_items, key=lambda it: (rank1(it), -it.importance))
-				two_subject_items = [it for it in self.memory_bank if len(it.subjects) == 2]
-				if not two_subject_items:
-					return None
-
-				def pref_score(s: str) -> float:
-					return 1.0 - (self.preferences.index(s) / len(self.preferences)) if s in self.preferences else 0.0
-
-				def avg_pref(it) -> float:
-					s1, s2 = it.subjects
-					return (pref_score(s1) + pref_score(s2)) / 2.0
-
-				return max(two_subject_items, key=lambda it: (avg_pref(it), it.importance))
+# ==================== Config ====================
+AREA_TOL = 0.5  # cm^2 tolerance for exterior area match
+CRUST_W = 1.0  # (not used now for scoring; left in case we revert)
+ANGLE_DEG_STEP = 6  # angle sweep granularity (smaller = slower, finer)
+BSEARCH_ITERS = 60
+SNAP_EPS = 1e-7
+MIN_SMALL_AREA_FLOOR = 1.0  # avoid engine "piece too small" errors
 
 
-			except Exception:
-				return self.memory_bank[-1]
+# ==================== Helpers ====================
+def _as_points(coords) -> List[Tuple[float, float]]:
+    return [(float(x), float(y)) for x, y in coords]
 
-		else:
-			id_list = []
-			contributed_items = []
-			if history is not None:
-				for idh in history:
-					if idh is not None:
-						id_list.append(idh.id)
-			# print(id_list)
-			for item in self.memory_bank:
-				repeated = False
-				if item.id in id_list:
-					repeated = True
-					contributed_items.append(item.id)
-				history.append(item)
-				freshness_score = self.__calculate_freshness_score(history, n, item)
-				nonmonotonousness_score = weight_nonMon * self.__calculate_nonmonotonousness_score(
-					history, n, item, repeated
-				)
-				current_item_score = 0
-				coherence_score = self.__calculate_coherence_score(history, n, item)
 
-				current_item_score = coherence_score + freshness_score + nonmonotonousness_score
+def _heal_polygon(P: Polygon) -> Polygon:
+    Q = P.buffer(0)
+    if isinstance(Q, Polygon):
+        return Q
+    if isinstance(Q, MultiPolygon) and Q.geoms:
+        return max(
+            (g for g in Q.geoms if isinstance(g, Polygon)),
+            key=lambda g: g.area,
+        )
+    return P
 
-				epsilon = 0.01
-				preference_score = 0
-				# best_ranked = item
 
-				for i in item.subjects:
-					preference_score += 1 - (self.preferences.index(i) / len(self.preferences))
-				preference_score = preference_score / len(item.subjects)
-				
-				if current_item_score > best_score:
-					best_score = current_item_score
-					best_item = item
+def _long_line(theta: float, c: float, pad: float = 1e5) -> LineString:
+    nx, ny = math.cos(theta), math.sin(theta)
+    vx, vy = -ny, nx
+    mx, my = c * nx, c * ny
+    return LineString(
+        [(mx - pad * vx, my - pad * vy), (mx + pad * vx, my + pad * vy)],
+    )
 
-				elif abs(current_item_score - best_score) < epsilon:
-					if best_item is not None and current_item_score + preference_score > best_score:
-						best_score = current_item_score
-						best_item = item
 
-				history.pop(-1)
+def _bounds_proj(P: Polygon, theta: float) -> Tuple[float, float]:
+    xmin, ymin, xmax, ymax = P.bounds
+    c, s = math.cos(theta), math.sin(theta)
+    vals = [
+        c * xmin + s * ymin,
+        c * xmin + s * ymax,
+        c * xmax + s * ymin,
+        c * xmax + s * ymax,
+    ]
+    return min(vals), max(vals)
 
-		item = best_item
-		return best_item
+
+def _longest_chord(
+    P: Polygon, theta: float, c: float,
+) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+    inter = P.intersection(_long_line(theta, c))
+    best = None
+    bestL = -1.0
+
+    def add(ls: LineString) -> None:
+        nonlocal best, bestL
+        if not isinstance(ls, LineString) or len(ls.coords) < 2:
+            return
+        L = ls.length
+        if L > bestL:
+            bestL = L
+            a, b = ls.coords[0], ls.coords[-1]
+            best = ((float(a[0]), float(a[1])), (float(b[0]), float(b[1])))
+
+    if isinstance(inter, LineString):
+        add(inter)
+    elif isinstance(inter, MultiLineString):
+        for g in inter.geoms:
+            add(g)
+    elif isinstance(inter, GeometryCollection):
+        for g in inter.geoms:
+            if isinstance(g, LineString):
+                add(g)
+            elif isinstance(g, MultiLineString):
+                for h in g.geoms:
+                    add(h)
+    return best
+
+
+def _split_by_chord(P: Polygon, chord: Tuple[Tuple[float, float], Tuple[float, float]]) -> List[Polygon]:
+    (ax, ay), (bx, by) = chord
+
+    def _do(splitter) -> List[Polygon]:
+        try:
+            res = sh_split(P, splitter)
+        except Exception:
+            return []
+        return [
+            g
+            for g in getattr(res, "geoms", [])
+            if isinstance(g, Polygon) and g.area > 1e-10
+        ]
+
+    seg = LineString([(ax, ay), (bx, by)])
+    parts = _do(seg)
+    if len(parts) < 2:
+        dx, dy = bx - ax, by - ay
+        L = math.hypot(dx, dy)
+        if L > 0:
+            eps = SNAP_EPS
+            seg2 = LineString(
+                [(ax - eps * dx, ay - eps * dy), (bx + eps * dx, by + eps * dy)],
+            )
+            parts = _do(seg2)
+    return parts
+
+
+def _split_by_line(
+    P: Polygon, theta: float, c: float,
+) -> Tuple[float, float, List[Polygon], Optional[Tuple[Tuple[float, float], Tuple[float, float]]]]:
+    chord = _longest_chord(P, theta, c)
+    if chord is None:
+        return 0.0, P.area, [P], None
+    parts = _split_by_chord(P, chord)
+    if len(parts) < 2:
+        parts = [
+            g
+            for g in getattr(sh_split(P, _long_line(theta, c)), "geoms", [])
+            if isinstance(g, Polygon) and g.area > 1e-10
+        ]
+    if len(parts) < 2:
+        return 0.0, P.area, [P], chord
+    parts.sort(key=lambda g: g.area)
+    return parts[0].area, parts[-1].area, parts, chord
+
+
+def _snap_to_boundary(pt: ShyPoint, P: Polygon) -> ShyPoint:
+    _, on = nearest_points(pt, P.boundary)
+    return on
+
+
+def _bisection_offset_for_alpha(P: Polygon, alpha: float, theta: float) -> Optional[float]:
+    if P.area <= 1e-12:
+        return None
+    lo, hi = _bounds_proj(P, theta)
+    target = alpha * P.area
+    for _ in range(BSEARCH_ITERS):
+        mid = 0.5 * (lo + hi)
+        n = (math.cos(theta), math.sin(theta))
+        _, _, parts, _ = _split_by_line(P, theta, mid)
+        left = 0.0
+        for g in parts:
+            ctr = g.representative_point()
+            if n[0] * ctr.x + n[1] * ctr.y - mid <= 0:
+                left += g.area
+        if abs(left - target) <= AREA_TOL:
+            return mid
+        if left < target:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def _solve_alpha_line(
+    P: Polygon,
+    alpha: float,
+    angle_candidates: List[float],
+    cake_ratio_source: Cake,
+) -> Optional[Tuple[float, float, Tuple[Tuple[float, float], Tuple[float, float]]]]:
+    P = _heal_polygon(P)
+    best = None
+    for deg in angle_candidates:
+        theta = (deg % 180.0) * math.pi / 180.0
+        c = _bisection_offset_for_alpha(P, alpha, theta)
+        if c is None:
+            continue
+        aS, aL, parts, chord = _split_by_line(P, theta, c)
+        if chord is None or len(parts) < 2:
+            continue
+        parts_sorted = sorted(parts, key=lambda g: g.area, reverse=True)[:2]
+        big, small = parts_sorted[0], parts_sorted[1]
+        try:
+            r_big = cake_ratio_source.get_piece_ratio(big)
+            r_small = cake_ratio_source.get_piece_ratio(small)
+        except Exception:
+            r_big = 0.0
+            r_small = 0.0
+        score = abs(r_big - r_small)
+        if best is None or (
+            score < best[0]
+            or (
+                math.isclose(score, best[0])
+                and abs(aS - alpha * P.area) < abs(best[3] - alpha * P.area)
+            )
+        ):
+            best = (score, theta, c, aS, chord)
+    if best is None:
+        return None
+    _, theta, c, _, chord = best
+    return theta, c, chord
+
+
+def _angle_grid(step_deg: int = ANGLE_DEG_STEP) -> List[float]:
+    return [float(d) for d in range(0, 180, step_deg)]
+
+
+def _small_area(P: Polygon, theta: float, c: float) -> float:
+    aS, _, _, _ = _split_by_line(P, theta, c)
+    return aS
+
+
+def _nudge_c_to_avoid_sliver(P: Polygon, theta: float, c: float, min_small_area: float) -> float:
+    xmin, ymin, xmax, ymax = P.bounds
+    step = 0.01 * ((xmax - xmin) + (ymax - ymin))
+    best_c = c
+    best_a = _small_area(P, theta, c)
+    if best_a >= min_small_area:
+        return c
+    for k in range(1, 21):
+        for sign in (+1, -1):
+            c2 = c + sign * k * step
+            a2 = _small_area(P, theta, c2)
+            if a2 > best_a:
+                best_a = a2
+                best_c = c2
+                if best_a >= min_small_area:
+                    return best_c
+    return best_c
+
+
+def _apply_validated_cut(
+    cake_sim: Cake,
+    P: Polygon,
+    theta: float,
+    c: float,
+    chord_hint: Optional[Tuple[Tuple[float, float], Tuple[float, float]]] = None,
+    min_small_area: float = MIN_SMALL_AREA_FLOOR,
+) -> Optional[Tuple[Polygon, Polygon, Tuple[ShyPoint, ShyPoint]]]:
+    c_adj = _nudge_c_to_avoid_sliver(P, theta, c, min_small_area)
+    chord = chord_hint or _longest_chord(P, theta, c_adj)
+    if chord is None:
+        return None
+    (ax, ay), (bx, by) = chord
+    pa = _snap_to_boundary(ShyPoint(ax, ay), P)
+    pb = _snap_to_boundary(ShyPoint(bx, by), P)
+
+    ok, _ = cake_sim.cut_is_valid(pa, pb)
+    if not ok:
+        xmin, ymin, xmax, ymax = P.bounds
+        step = 0.01 * ((xmax - xmin) + (ymax - ymin))
+        for mul in (1, -1, 2, -2):
+            c_try = c_adj + mul * step
+            chord2 = _longest_chord(P, theta, c_try)
+            if chord2 is None:
+                continue
+            (ax2, ay2), (bx2, by2) = chord2
+            pa2 = _snap_to_boundary(ShyPoint(ax2, ay2), P)
+            pb2 = _snap_to_boundary(ShyPoint(bx2, by2), P)
+            ok2, _ = cake_sim.cut_is_valid(pa2, pb2)
+            if ok2:
+                pa = pa2
+                pb = pb2
+                c_adj = c_try
+                chord = chord2
+                break
+        else:
+            return None
+
+    try:
+        cake_sim.cut(pa, pb)
+    except Exception:
+        return None
+
+    parts = _split_by_chord(P, ((pa.x, pa.y), (pb.x, pb.y)))
+    if len(parts) < 2:
+        parts = [
+            g
+            for g in getattr(
+                sh_split(P, LineString([(pa.x, pa.y), (pb.x, pb.y)])),
+                "geoms",
+                [],
+            )
+            if isinstance(g, Polygon) and g.area > 1e-10
+        ]
+    if len(parts) < 2:
+        return None
+
+    parts.sort(key=lambda g: g.area, reverse=True)
+    return parts[0], parts[1], (pa, pb)
+
+
+# ==================== Planner ====================
+def _plan_piece(
+    P: Polygon,
+    m: int,
+    total_area_unit: float,
+    cuts_out: List[Tuple[ShyPoint, ShyPoint]],
+    cake_sim: Cake,
+) -> None:
+    P = _heal_polygon(P)
+    if m <= 1 or P.area <= 1e-9:
+        return
+
+    angles = _angle_grid()
+
+    if m % 4 == 0:
+        sol = _solve_alpha_line(P, 0.5, angles, cake_sim)
+        if sol is None:
+            return
+        theta, c, chord = sol
+        applied = _apply_validated_cut(cake_sim, P, theta, c, chord_hint=chord)
+        if applied is None:
+            return
+        L, S, (pa, pb) = applied
+        cuts_out.append((pa, pb))
+        _plan_piece(L, m // 2, total_area_unit, cuts_out, cake_sim)
+        _plan_piece(S, m // 2, total_area_unit, cuts_out, cake_sim)
+        return
+
+    if m % 4 == 2:
+        k = (m - 2) // 4
+        alpha = (2.0 * k) / (4.0 * k + 2.0) if m >= 2 else 0.5
+        sol = _solve_alpha_line(P, alpha, angles, cake_sim)
+        if sol is not None:
+            theta, c, chord = sol
+            applied = _apply_validated_cut(cake_sim, P, theta, c, chord_hint=chord)
+            if applied is not None:
+                L, S, (pa, pb) = applied
+                cuts_out.append((pa, pb))
+                m1 = int(round(alpha * m))
+                m1 = max(1, min(m - 1, m1))
+                m2 = m - m1
+                if L.area >= S.area:
+                    _plan_piece(L, m2, total_area_unit, cuts_out, cake_sim)
+                    _plan_piece(S, m1, total_area_unit, cuts_out, cake_sim)
+                else:
+                    _plan_piece(L, m1, total_area_unit, cuts_out, cake_sim)
+                    _plan_piece(S, m2, total_area_unit, cuts_out, cake_sim)
+                return
+
+        # Fallback
+        sol2 = _solve_alpha_line(P, 0.5, angles, cake_sim)
+        if sol2 is None:
+            return
+        theta0, c0, chord0 = sol2
+        applied0 = _apply_validated_cut(cake_sim, P, theta0, c0, chord_hint=chord0)
+        if applied0 is None:
+            return
+        H1, H2, (p0a, p0b) = applied0
+        cuts_out.append((p0a, p0b))
+
+        halves = [H1, H2]
+        remainders: List[Polygon] = []
+
+        for H in halves:
+            if H.is_empty:
+                continue
+            target_alpha_half = total_area_unit / max(H.area, 1e-12)
+            target_alpha_half = max(0.0, min(1.0, target_alpha_half))
+            local_angles = [
+                ((theta0 * 180 / math.pi + d) % 180.0) for d in (-12, -6, 0, 6, 12)
+            ]
+            solH = _solve_alpha_line(H, target_alpha_half, local_angles, cake_sim)
+            if solH is None:
+                remainders.append(H)
+                continue
+            th, cH, chordH = solH
+            appliedH = _apply_validated_cut(
+                cake_sim,
+                H,
+                th,
+                cH,
+                chord_hint=chordH,
+                min_small_area=MIN_SMALL_AREA_FLOOR,
+            )
+            if appliedH is None:
+                remainders.append(H)
+                continue
+            Lh, Sh, (pha, phb) = appliedH
+            cuts_out.append((pha, phb))
+            small, large = (Sh, Lh) if Sh.area <= Lh.area else (Lh, Sh)
+            remainders.append(large)
+
+        rem = m - 2
+        if rem <= 0 or not remainders:
+            return
+        totalA = sum(g.area for g in remainders)
+        counts = [int(round(rem * (g.area / totalA))) for g in remainders]
+        diff = rem - sum(counts)
+        order = sorted(
+            range(len(remainders)), key=lambda i: remainders[i].area, reverse=True,
+        )
+        idx = 0
+        while diff != 0 and order:
+            j = order[idx % len(order)]
+            if diff > 0:
+                counts[j] += 1
+                diff -= 1
+            else:
+                if counts[j] > 0:
+                    counts[j] -= 1
+                    diff += 1
+            idx += 1
+
+        for g, cnt in zip(remainders, counts):
+            if cnt > 0:
+                _plan_piece(g, cnt, total_area_unit, cuts_out, cake_sim)
+        return
+
+    sol = _solve_alpha_line(P, 0.5, angles, cake_sim)
+    if sol is None:
+        return
+    th, cc, chord = sol
+    applied = _apply_validated_cut(cake_sim, P, th, cc, chord_hint=chord)
+    if applied is None:
+        return
+    L, S, (pa, pb) = applied
+    cuts_out.append((pa, pb))
+    m1 = m // 2
+    m2 = m - m1
+    _plan_piece(L, m1, total_area_unit, cuts_out, cake_sim)
+    _plan_piece(S, m2, total_area_unit, cuts_out, cake_sim)
+
+
+# ==================== Player ====================
+class Player1(Player):
+    def __init__(self, children: int, cake: Cake, cake_path: str | None = None) -> None:
+        super().__init__(children, cake, cake_path)
+
+    def _extract_polygon(self) -> Polygon:
+        ext = getattr(self.cake, "exterior_shape", None)
+        if isinstance(ext, Polygon):
+            return _heal_polygon(ext)
+        if hasattr(self.cake, "get_boundary_points") and callable(
+            self.cake.get_boundary_points,
+        ):
+            pts = _as_points(self.cake.get_boundary_points())
+            if len(pts) >= 3:
+                if pts[0] == pts[-1]:
+                    pts = pts[:-1]
+                return _heal_polygon(Polygon(pts))
+        raise ValueError("Player1: cannot extract exterior polygon")
+
+    def get_cuts(self) -> List[Tuple[ShyPoint, ShyPoint]]:
+        P0 = self._extract_polygon()
+        if not isinstance(P0, Polygon) or P0.area <= 1e-9:
+            return []
+        n = int(self.children)
+        if n <= 1:
+            return []
+
+        cuts: List[Tuple[ShyPoint, ShyPoint]] = []
+        unit = P0.area / n
+        cake_sim = self.cake.copy()
+        _plan_piece(P0, n, unit, cuts, cake_sim)
+
+        if len(cuts) > n - 1:
+            cuts = cuts[: n - 1]
+        return cuts
