@@ -26,9 +26,9 @@ class Player4(Player):
         self.PRESET_CAKES = [("mushroom", 6), ("rocket", 6), ("hilbert", 31)]
 
         self.N_SWEEP_DIRECTIONS = N_SWEEP_DIRECTIONS
-        
+
         target_info = utils.get_final_piece_targets(cake, children)
-        
+
         self.final_piece_min_area = target_info["min_area"]
         self.final_piece_max_area = target_info["max_area"]
         print(
@@ -38,15 +38,18 @@ class Player4(Player):
         self.final_piece_min_ratio = target_info["min_ratio"]
         self.final_piece_max_ratio = target_info["max_ratio"]
         print(f"Player 4: Target ratio: {self.final_piece_target_ratio}.")
-        
+
         self.profiler = cProfile.Profile()
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         # If cake is a preset cake, use prepared cuts
-        if any(p in self.cake_path and self.children == n_children for p, n_children in self.PRESET_CAKES):
+        if any(
+            p in self.cake_path and self.children == n_children
+            for p, n_children in self.PRESET_CAKES
+        ):
             return self._get_preset_cuts(os.path.basename(self.cake_path))
 
-        # Otherwise, use DFS search 
+        # Otherwise, use DFS search
         print(f"Player 4: Starting search for {self.children} children...")
         self.start_time = time.time()
         self.profiler.enable()
@@ -57,19 +60,21 @@ class Player4(Player):
         )
         while result is None and self.end_time - self.start_time < 60:
             self.N_SWEEP_DIRECTIONS = self.N_SWEEP_DIRECTIONS * 2
-            print(f"Increasing sweep directions to {self.N_SWEEP_DIRECTIONS} and retrying...")
+            print(
+                f"Increasing sweep directions to {self.N_SWEEP_DIRECTIONS} and retrying..."
+            )
             result = self.DFS(self.cake.exterior_shape, self.children)
             self.end_time = time.time()
         if result is None:
             print("Player 4: No solution found.")
             result = []
-        
+
         self.profiler.disable()
         stats = pstats.Stats(self.profiler)
         stats.sort_stats("cumulative")
         stats.print_stats(10)
         return result
-    
+
     def _get_preset_cuts(self, cake_path: str) -> list[tuple[Point, Point]]:
         print(f"Using preset cuts for {cake_path}.")
         if "mushroom" in cake_path and self.children == 6:
@@ -80,7 +85,9 @@ class Player4(Player):
             return get_hilbert_cuts()
         return None
 
-    def DFS(self, piece: Polygon, children: int, depth: int = 0) -> list[tuple[Point, Point]]:
+    def DFS(
+        self, piece: Polygon, children: int, depth: int = 0
+    ) -> list[tuple[Point, Point]]:
         print(f"\nDFS solving for {children} children remaining...")
         if children == 1:
             return []
@@ -92,7 +99,7 @@ class Player4(Player):
         else:
             print("Piece is not convex, using standard cut generation.")
             cuts = self.generate_and_filter_cuts(piece, children)
-            
+
         cut_sequence: list[tuple[Point, Point]] = []
         cuts_tried = 0
         for cut in cuts:
@@ -106,7 +113,7 @@ class Player4(Player):
             if result is None:
                 continue
             subpiece1, subpiece2 = result
-            
+
             # Central DFS idea: assign each subpiece to have (k, children - k) final pieces and try
             for k in range(1, children):
                 subpiece1_children = k
@@ -186,7 +193,7 @@ class Player4(Player):
                 num_sweeps = N_MAX_SWEEPS_PER_DIR
                 step_dist = max_distance / (num_sweeps // 2)
                 # print(f"Piece too big, limiting sweeps to {N_MAX_SWEEPS_PER_DIR}.")
-            
+
             min_ratio_err_found = float("inf")
             for i in range(num_sweeps):
                 if i == 0:
@@ -235,7 +242,7 @@ class Player4(Player):
                             from_p: Point = points[j]
                             to_p: Point = points[k]
                             line = LineString([from_p, to_p])
-                            
+
                             line_intersection = line.intersection(piece)
                             if line_intersection.geom_type != "LineString":
                                 continue
@@ -275,17 +282,17 @@ class Player4(Player):
 
                             except Exception:
                                 continue
-                            
+
                 # If we found a very good cut, we can stop early for this angle
                 if min_ratio_err_found < 0.0125:
                     # print(f"Early stopping sweep at angle {angle_deg} due to good cut.")
                     break
-                
+
         # Lower error is better
         print(f"Found {len(candidate_cuts)} cuts.")
         candidate_cuts.sort(key=lambda x: x[1])
         return [c[0] for c in candidate_cuts]
-    
+
     def generate_and_filter_cuts_convex(self, piece: Polygon, children: int) -> list:
         """
         Sweeps from centroid outward for each angle.
@@ -298,11 +305,11 @@ class Player4(Player):
         if piece.interiors:
             for interior in piece.interiors:
                 coords.extend(list(interior.coords))
-        
+
         if piece.area < 2 * self.final_piece_min_area:
             print(f"Piece too small to cut, area {piece.area}.")
             return []
-        
+
         candidate_cuts = []
         for angle_deg in range(0, 180, 180 // self.N_SWEEP_DIRECTIONS):
             angle_rad = math.radians(angle_deg)
@@ -325,13 +332,13 @@ class Player4(Player):
             left = min_proj
             right = max_proj
             tolerance = 0.01  # 0.01 cm tolerance
-            
+
             search_direction_determined = False
             piece1_grows_with_projection = True  # will be set on first iteration
-                    
+
             while right - left > tolerance:
                 mid = (left + right) / 2
-                
+
                 # Create a line at this projection
                 center_x = mid * normal_x
                 center_y = mid * normal_y
@@ -362,7 +369,7 @@ class Player4(Player):
                 # For convex polygons, we should get exactly 2 intersection points
                 if len(points) != 2:
                     break
-                
+
                 from_p: Point = points[0]
                 to_p: Point = points[1]
                 line = LineString([from_p, to_p])
@@ -375,40 +382,51 @@ class Player4(Player):
                     piece1, piece2 = split_result.geoms
                     piece1_area = piece1.area
                     piece2_area = piece2.area
-                    
+
                     # On first iteration, determine which piece grows with increasing projection
                     if not search_direction_determined:
                         # Try a slightly higher projection to see which piece grows
                         test_proj = mid + tolerance * 2
                         test_center_x = test_proj * normal_x
                         test_center_y = test_proj * normal_y
-                        test_p1 = (test_center_x - extension * line_dx, test_center_y - extension * line_dy)
-                        test_p2 = (test_center_x + extension * line_dx, test_center_y + extension * line_dy)
+                        test_p1 = (
+                            test_center_x - extension * line_dx,
+                            test_center_y - extension * line_dy,
+                        )
+                        test_p2 = (
+                            test_center_x + extension * line_dx,
+                            test_center_y + extension * line_dy,
+                        )
                         test_line = LineString([test_p1, test_p2])
-                        
+
                         try:
                             test_split = split(piece, test_line)
                             if len(test_split.geoms) == 2:
                                 test_piece1, test_piece2 = test_split.geoms
                                 # If piece1 area increased, piece1 grows with projection
-                                piece1_grows_with_projection = test_piece1.area > piece1_area
+                                piece1_grows_with_projection = (
+                                    test_piece1.area > piece1_area
+                                )
                                 search_direction_determined = True
-                        except:
+                        except:  # noqa: E722
                             pass
 
                     # Check if both pieces satisfy minimum area constraint
-                    if piece1_area >= self.final_piece_min_area and piece2_area >= self.final_piece_min_area:
+                    if (
+                        piece1_area >= self.final_piece_min_area
+                        and piece2_area >= self.final_piece_min_area
+                    ):
                         # Found a valid cut! Calculate ratio and store it
                         piece1_ratio = self.cake.get_piece_ratio(piece1)
                         piece2_ratio = self.cake.get_piece_ratio(piece2)
-                        
+
                         ratio1_error = abs(piece1_ratio - self.final_piece_target_ratio)
                         ratio2_error = abs(piece2_ratio - self.final_piece_target_ratio)
                         ratio_error = ratio1_error + ratio2_error
 
                         candidate_cuts.append(((from_p, to_p), ratio_error))
                         break  # Early terminate for this angle
-                    
+
                     # Binary search logic: adjust search space based on which constraint is violated
                     if piece1_area < self.final_piece_min_area:
                         # piece1 is too small
@@ -422,7 +440,7 @@ class Player4(Player):
                             right = mid  # Move backward to grow piece2
                         else:
                             left = mid  # Move forward to grow piece2
-                        
+
                 except Exception:
                     # If we can't split properly, this position doesn't work
                     # Try moving toward a more central position
@@ -430,9 +448,10 @@ class Player4(Player):
                         left = mid
                     else:
                         right = mid
-        
-        print(f"Found {len(candidate_cuts)} cuts using binary search (convex optimization).")
+
+        print(
+            f"Found {len(candidate_cuts)} cuts using binary search (convex optimization)."
+        )
         # Lower error is better
         candidate_cuts.sort(key=lambda x: x[1])
         return [c[0] for c in candidate_cuts]
-    
