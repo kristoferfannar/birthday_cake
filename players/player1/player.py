@@ -63,7 +63,9 @@ def _bounds_proj(P: Polygon, theta: float) -> Tuple[float, float]:
 
 
 def _longest_chord(
-    P: Polygon, theta: float, c: float,
+    P: Polygon,
+    theta: float,
+    c: float,
 ) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
     inter = P.intersection(_long_line(theta, c))
     best = None
@@ -94,7 +96,9 @@ def _longest_chord(
     return best
 
 
-def _split_by_chord(P: Polygon, chord: Tuple[Tuple[float, float], Tuple[float, float]]) -> List[Polygon]:
+def _split_by_chord(
+    P: Polygon, chord: Tuple[Tuple[float, float], Tuple[float, float]]
+) -> List[Polygon]:
     (ax, ay), (bx, by) = chord
 
     def _do(splitter) -> List[Polygon]:
@@ -123,8 +127,15 @@ def _split_by_chord(P: Polygon, chord: Tuple[Tuple[float, float], Tuple[float, f
 
 
 def _split_by_line(
-    P: Polygon, theta: float, c: float,
-) -> Tuple[float, float, List[Polygon], Optional[Tuple[Tuple[float, float], Tuple[float, float]]]]:
+    P: Polygon,
+    theta: float,
+    c: float,
+) -> Tuple[
+    float,
+    float,
+    List[Polygon],
+    Optional[Tuple[Tuple[float, float], Tuple[float, float]]],
+]:
     chord = _longest_chord(P, theta, c)
     if chord is None:
         return 0.0, P.area, [P], None
@@ -146,7 +157,9 @@ def _snap_to_boundary(pt: ShyPoint, P: Polygon) -> ShyPoint:
     return on
 
 
-def _bisection_offset_for_alpha(P: Polygon, alpha: float, theta: float) -> Optional[float]:
+def _bisection_offset_for_alpha(
+    P: Polygon, alpha: float, theta: float
+) -> Optional[float]:
     if P.area <= 1e-12:
         return None
     lo, hi = _bounds_proj(P, theta)
@@ -216,7 +229,9 @@ def _small_area(P: Polygon, theta: float, c: float) -> float:
     return aS
 
 
-def _nudge_c_to_avoid_sliver(P: Polygon, theta: float, c: float, min_small_area: float) -> float:
+def _nudge_c_to_avoid_sliver(
+    P: Polygon, theta: float, c: float, min_small_area: float
+) -> float:
     xmin, ymin, xmax, ymax = P.bounds
     step = 0.01 * ((xmax - xmin) + (ymax - ymin))
     best_c = c
@@ -395,7 +410,9 @@ def _plan_piece(
         counts = [int(round(rem * (g.area / totalA))) for g in remainders]
         diff = rem - sum(counts)
         order = sorted(
-            range(len(remainders)), key=lambda i: remainders[i].area, reverse=True,
+            range(len(remainders)),
+            key=lambda i: remainders[i].area,
+            reverse=True,
         )
         idx = 0
         while diff != 0 and order:
