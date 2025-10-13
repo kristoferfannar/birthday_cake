@@ -439,11 +439,9 @@ class CrustOptimizingPlayer(Player):
             print(f"Found {len(best_line_list)} candidates from the first algorithm.")
 
             run_angle_fallback = False
-            run_angle_bst = False
             if not best_line_list:
                 print("No optimal candidates found. Running angle-based fallback.")
                 run_angle_fallback = True
-                run_angle_bst = True
             else:
                 # Check the best cut's cake precision from the primary search
                 best_primary_cut = min(best_line_list, key=lambda x: x[3])
@@ -452,7 +450,6 @@ class CrustOptimizingPlayer(Player):
                         f"Primary search found cuts, but the best precision ({best_primary_cut[3]:.6f}) is not optimal. Running angle-based fallback."
                     )
                     run_angle_fallback = True
-                    run_angle_bst = True
 
             if run_angle_fallback:
                 all_found_cuts = self._find_all_cuts_by_angle(
@@ -466,17 +463,17 @@ class CrustOptimizingPlayer(Player):
                 else:
                     print("Angle-based search failed to find a suitable cut.")
 
-            if run_angle_bst:
-                all_angle_bst_found_cuts = self.Binary_Search(
-                    Area_list, piece, crust_ratio
-                )
-                if all_angle_bst_found_cuts:
-                    best_line_list.extend(all_angle_bst_found_cuts)
-                    print(
-                        f"Angle-based binary search found {len(all_angle_bst_found_cuts)} suitable cuts."
-                    )
-                else:
-                    print("Angle-based binary search failed to find a suitable cut.")
+            # if run_angle_bst:
+            #     all_angle_bst_found_cuts = self.Binary_Search(
+            #         Area_list, piece, crust_ratio
+            #     )
+            #     if all_angle_bst_found_cuts:
+            #         best_line_list.extend(all_angle_bst_found_cuts)
+            #         print(
+            #             f"Angle-based binary search found {len(all_angle_bst_found_cuts)} suitable cuts."
+            #         )
+            #     else:
+            #         print("Angle-based binary search failed to find a suitable cut.")
 
             if best_line_list:
                 best_line_list.sort(key=lambda x: (x[3] + 0.001) * (x[0] + 0.1))
