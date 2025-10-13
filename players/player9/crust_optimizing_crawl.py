@@ -2,7 +2,7 @@ from shapely import Point, LineString, MultiPoint
 from shapely.geometry import Polygon
 from shapely.ops import split
 from typing import cast
-from math import radians, sin, cos
+from math import radians, sin, cos, atan2, degrees, sqrt, copysign
 import src.constants as c
 from players.player import Player
 from players.random_player import RandomPlayer
@@ -234,6 +234,104 @@ class CrustOptimizingPlayer(Player):
         line = self._get_line_at_angle(cut_center_x, cut_center_y, angle, search_range)
         return self.find_cuts(line, piece)
 
+    # ---------- Crawl Methods ----------
+
+    def calculate_initial_angle_offset(
+        self, piece: Polygon, p1: Point, p2: Point
+    ) -> tuple[float, float]:
+        dx = p2.x - p1.x
+        dy = p2.y - p1.y
+        angle = degrees(atan2(dy, dx)) % 180
+
+        line_center_x = (p1.x + p2.x) / 2
+        line_center_y = (p1.y + p2.y) / 2
+
+        bounds = piece.bounds
+        box_center_x = (bounds[0] + bounds[2]) / 2
+        box_center_y = (bounds[1] + bounds[3]) / 2
+
+        offset_vec_x = line_center_x - box_center_x
+        offset_vec_y = line_center_y - box_center_y
+        offset_dist = sqrt(offset_vec_x**2 + offset_vec_y**2)
+
+        offset_angle_rad = radians(angle + 90)
+        offset_dir_x = cos(offset_angle_rad)
+        offset_dir_y = sin(offset_angle_rad)
+
+        dot_product = offset_vec_x * offset_dir_x + offset_vec_y * offset_dir_y
+
+        signed_offset = copysign(offset_dist, dot_product)
+
+        return angle, signed_offset
+
+    def crawl(
+        self,
+        piece: Polygon,
+        Area_list: list[float],
+        crust_ratio: float,
+        starting_cut: tuple,
+    ) -> tuple:
+        initial_angle, initial_offset = self.calculate_initial_angle_offset(
+            piece, starting_cut[1], starting_cut[2]
+        )
+
+        current_angle = initial_angle
+        current_offset = initial_offset
+        best_found_cut = starting_cut
+
+        bounds = piece.bounds
+        max_dimension = max(bounds[2] - bounds[0], bounds[3] - bounds[1])
+        step_angle = 3
+        step_offset = max_dimension / 200
+
+        for i in range(15):
+            best_neighbor_score = (best_found_cut[3] + 0.001) * (
+                best_found_cut[0] + 0.1
+            )
+
+            for angle_delta in [-step_angle, 0, step_angle]:
+                for offset_delta in [-step_offset, 0, step_offset]:
+                    if angle_delta == 0 and offset_delta == 0:
+                        continue
+
+                    test_angle = current_angle + angle_delta
+                    test_offset = current_offset + offset_delta
+
+                    cut_points = self._get_cut_points_from_offset(
+                        piece, test_offset, test_angle
+                    )
+                    if not cut_points:
+                        continue
+
+                    from_p, to_p = cut_points
+                    is_valid, _ = self.cake.cut_is_valid(from_p, to_p)
+
+                    if is_valid:
+                        cake_p, crust_p = self.check_precision(
+                            from_p, to_p, Area_list, piece, crust_ratio
+                        )
+                        if cake_p == float("inf"):
+                            continue
+
+                        new_score = (crust_p + 0.001) * (cake_p + 0.1)
+
+                        if new_score < best_neighbor_score:
+                            best_neighbor_score = new_score
+                            best_found_cut = (cake_p, from_p, to_p, crust_p)
+                            current_angle = test_angle
+                            current_offset = test_offset
+
+            step_angle /= 2
+            step_offset /= 2
+
+            if (
+                best_found_cut[0] < self.target_area_tolerance
+                and best_found_cut[3] < 0.01
+            ):
+                break
+
+        return best_found_cut
+
     # ---------- Main Algorithm ----------
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
@@ -312,6 +410,7 @@ class CrustOptimizingPlayer(Player):
                 else:
                     print("Angle-based search failed to find a suitable cut.")
 
+            bestline = None
             if best_line_list:
                 best_line_list.sort(key=lambda x: (x[3] + 0.001) * (x[0] + 0.1))
                 bestline = best_line_list[0]
@@ -322,6 +421,18 @@ class CrustOptimizingPlayer(Player):
             elif best_line[1] is not None:
                 print("No optimal crust found, using best-effort cut.")
                 bestline = best_line
+
+            if bestline:
+                print(
+                    f"Found initial candidate. CakeP: {bestline[0]:.6f}, CrustP: {bestline[3]:.6f}. Refining..."
+                )
+
+                bestline = self.crawl(piece, Area_list, crust_ratio, bestline)
+
+                print("Crawl finished.")
+                print(
+                    f"Final Cut -> Cake Precision: {bestline[0]:.6f}, Crust Precision: {bestline[3]:.6f}"
+                )
             else:
                 print("Random strategy as a last resort.")
                 a, b = self.random_player.find_random_cut()
