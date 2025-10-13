@@ -336,7 +336,11 @@ class Player4(Player):
             return []
 
         candidate_cuts = []
-        for angle_deg in range(0, 180, 180 // self.N_SWEEP_DIRECTIONS):
+        cut_angles = []
+        degrees_per_cut = 180 / self.N_SWEEP_DIRECTIONS
+        for i in range(self.N_SWEEP_DIRECTIONS):
+            cut_angles.append(i * degrees_per_cut)
+        for angle_deg in cut_angles:
             angle_rad = math.radians(angle_deg)
 
             # Normal vector (direction we sweep along)
