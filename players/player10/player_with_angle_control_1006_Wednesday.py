@@ -533,13 +533,13 @@ class Player10(Player):
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Main cutting logic - greedy approach with random (ratio, angle) pairs"""
-        print(f"__________Cutting for {self.children} children_______")
+        print("__________Cutting for {self.children} children_______")
 
         target_area = self.cake.get_area() / self.children
         target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
-        print(f"TARGET AREA: {target_area:.2f} cm²")
-        print(f"TARGET CRUST RATIO: {target_ratio:.3f}")
-        print(f"Strategy: Greedy cutting with random ratio+angle exploration\n")
+        print("TARGET AREA: {target_area:.2f} cm²")
+        print("TARGET CRUST RATIO: {target_ratio:.3f}")
+        print("Strategy: Greedy cutting with random ratio+angle exploration\n")
 
         return self._greedy_ratio_angle_cutting(target_area, target_ratio)
 

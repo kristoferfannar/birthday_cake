@@ -18,7 +18,7 @@ from players.player6.player import Player6
 from players.player7.player import Player7
 from players.player8.player import Player8
 from players.player9.player import Player9
-from players.player10.player_line_segments import Player10
+from players.player10.player import Player10
 
 
 class Game:
