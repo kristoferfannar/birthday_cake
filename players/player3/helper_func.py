@@ -1,167 +1,131 @@
 from shapely import Point, Polygon
 from shapely.geometry import LineString
 from src.cake import Cake
+import math
+
+# essentially our outer circle idea from wednesday, does not yet take into account the ratio idea, but binary search
+# should only change minimally
 
 
-def get_perimeter_points(cake, num_samples: int):
-    """Get points on the perimeter for potential cutting."""
-    # get the current largest polygon piece (the cake body)
+def find_point(xy1: Point, angle: float, piece: Polygon) -> Point | None:
+    # Find where a line from start_point at given angle intersects the piece boundary
+
+    # create a line extending from xy1 at the given angle
+    # 100 is arbitraryly large to ensure it goes beyond the piece
+    xy2 = Point(xy1.x + 100 * math.cos(angle), xy1.y + 100 * math.sin(angle))
+    line = LineString([xy1, xy2])
+
+    boundary = piece.boundary
+    intersection = line.intersection(boundary)
+
+    if intersection.geom_type == "Point":
+        return intersection
+
+    elif intersection.geom_type == "MultiPoint":
+        valid_points = (p for p in intersection.geoms if p.distance(xy1) > 0)
+
+        return min(valid_points, key=lambda p: p.distance(xy1))
+
+
+def binary_search_cut(
+    cake: Cake, xy1: Point, target_area: float, largest_piece: Polygon
+) -> tuple[Point, float] | None:
+    # Use binary search to find a cut that produces the target area
+
+    centroid = largest_piece.centroid
+
+    # calculate angle from xy1 through centroid
+    rise = centroid.y - xy1.y
+    run = centroid.x - xy1.x
+    angle = math.atan2(rise, run)
+
+    xy2 = find_point(xy1, angle, largest_piece)
+
+    if xy2 is None:
+        return None
+    # calculate initial angle with initial xy2
+    rise = xy2.y - xy1.y
+    run = xy2.x - xy1.x
+    xy2_angle = math.atan2(rise, run)
+
+    # we want to search +/- 180 degrees from initial angle
+    left = xy2_angle - math.pi
+    right = xy2_angle + math.pi
+
+    best_xy2 = None
+    best_area_diff = float("inf")
+
+    # standard binary search. stop when within 0.001 radians
+    while right > 0.001 + left:
+        mid = (left + right) / 2
+        xy2 = find_point(xy1, mid, largest_piece)
+
+        if xy2 is None:
+            left = mid
+            continue
+
+        valid, _ = cake.cut_is_valid(xy1, xy2)
+
+        if not valid:
+            left = mid
+            continue
+
+        target_piece, _ = cake.get_cuttable_piece(xy1, xy2)
+
+        pieces = cake.cut_piece(target_piece, xy1, xy2)
+        areas = [piece.area for piece in pieces]
+
+        # check area
+        area_diffs = [abs(area - target_area) for area in areas]
+        area_diff = min(area_diffs)
+
+        # save best cut as of now
+        if area_diff < best_area_diff:
+            best_area_diff = area_diff
+            best_xy2 = xy2
+
+        min_area = min(areas)
+
+        if min_area < target_area:
+            left = mid
+        else:
+            right = mid
+
+    # reduce threshold
+    if best_xy2 and best_area_diff < 0.20:
+        return (best_xy2, best_area_diff)
+
+    return None
+
+
+def find_valid_cuts_binary_search(
+    cake: Cake,
+    perim_points: list[Point] | None,
+    target_area: float,
+    original_ratio: float,
+) -> list[tuple[Point, Point]]:
+    valid_cuts = []
+
     largest_piece = max(cake.get_pieces(), key=lambda piece: piece.area)
 
-    boundary = largest_piece.exterior
-    points = [
-        boundary.interpolate(i / num_samples, normalized=True)
-        for i in range(num_samples)
-    ]
-    return points  # Return Point objects directly
+    for xy1 in perim_points:
+        cut = binary_search_cut(cake, xy1, target_area, largest_piece)
 
+        if not cut:
+            continue
 
-def _would_cut_along_boundary(p1: Point, p2: Point, piece: Polygon) -> bool:
-    """Check if a cut between two points would lie along the piece boundary."""
+        xy2, area_diff = cut
 
-    # Get the piece boundary
-    boundary = piece.boundary
+        split_pieces = cake.cut_piece(largest_piece, xy1, xy2)
+        ratios = [cake.get_piece_ratio(piece) for piece in split_pieces]
+        ratio_diffs = [abs(ratio - original_ratio) for ratio in ratios]
 
-    # Check if both points are very close to the boundary
-    p1_on_boundary = p1.distance(boundary) < 0.1
-    p2_on_boundary = p2.distance(boundary) < 0.1
+        # find the worst ratio diff since both pieces should conserve ratio
+        ratio_diff = max(ratio_diffs)
 
-    if not (p1_on_boundary and p2_on_boundary):
-        return False
+        valid_cuts.append((xy1, xy2, area_diff, ratio_diff))
 
-    # Create the cut line
-    cut_line = LineString([p1, p2])
+    # sort only by ratio since we only return valid areas
+    valid_cuts.sort(key=lambda x: x[3])
 
-    # Check if the line is very close to the boundary
-    line_distance_to_boundary = cut_line.distance(boundary)
-
-    # Additional check: if the line is mostly along the boundary, skip it
-    # This is a more sophisticated check that looks at the angle
-    if line_distance_to_boundary < 0.1:
-        # Check if the line is roughly parallel to the boundary
-        # by sampling points along the line and checking their distance to boundary
-        line_length = cut_line.length
-        if line_length > 0:
-            # Sample points along the line
-            num_samples = max(3, int(line_length / 0.5))  # Sample every 0.5 units
-            all_close_to_boundary = True
-
-            for i in range(num_samples + 1):
-                t = i / num_samples
-                sample_point = cut_line.interpolate(t, normalized=True)
-                if sample_point.distance(boundary) > 0.2:  # Not close to boundary
-                    all_close_to_boundary = False
-                    break
-
-            return all_close_to_boundary
-
-    return False
-
-
-def get_areas_and_ratios(
-    cake: Cake,
-    xy1: Point,
-    xy2: Point,
-    desired_piece_ratio: float = 0.5,
-    original_area: float = None,
-    original_ratio: float = None,
-    acceptable_area_error: float = 0.15,
-    acceptable_ratio_error: float = 0.03,
-) -> tuple[bool, float | None, float | None]:
-    """Find cuts that produce pieces with target ratio. Enhanced with configurable tolerance."""
-    valid, _ = cake.cut_is_valid(xy1, xy2)
-
-    if not valid:
-        return False, None, None
-
-    target_piece, _ = cake.get_cuttable_piece(xy1, xy2)
-
-    if target_piece is None:
-        return False, None, None
-
-    split_pieces = cake.cut_piece(target_piece, xy1, xy2)
-
-    areas = [piece.area for piece in split_pieces]
-
-    # check the ratio with whole cake area
-    target_area = original_area * desired_piece_ratio
-
-    # check if one piece is the target area of 1/children
-    area_diffs = [abs(area - target_area) for area in areas]
-    min_diff = min(area_diffs)
-
-    # check ratio of crust to pie
-    ratios = [cake.get_piece_ratio(piece) for piece in split_pieces]
-    ratio_diffs = [abs(ratio - original_ratio) for ratio in ratios]
-
-    # get average of the two ratio diffs since ratio should be mainteined for both pieces??? This might be wrong logic
-    # avg_ratio_diff = (ratio_diffs[0] + ratio_diffs[1]) / 2  # COMMENTED OUT: This averaging approach can hide poor cuts
-
-    # NEW IMPLEMENTATION: Use sum of squared differences (penalizes large deviations more)
-    squared_ratio_diff = (ratio_diffs[0] ** 2 + ratio_diffs[1] ** 2) / 2
-
-    if (
-        min_diff <= acceptable_area_error
-        and ratio_diffs[0] <= acceptable_ratio_error
-        and ratio_diffs[1] <= acceptable_ratio_error
-    ):
-        return (
-            True,
-            min_diff,
-            squared_ratio_diff,
-        )  # UPDATED: Using squared_ratio_diff instead of avg_ratio_diff
-
-    return (
-        False,
-        min_diff,
-        squared_ratio_diff,
-    )  # UPDATED: Using squared_ratio_diff instead of avg_ratio_diff
-
-
-# probably can use binary search to make this faster and optimize our search route instead of n^2 time complexity going through each point
-def find_valid_cuts(
-    cake: Cake,
-    perim_points: list[Point] | None = None,
-    target_ratio: float = 0.5,
-    original_area: float = None,
-    original_ratio: float = None,
-    acceptable_area_error: float = 0.15,
-    acceptable_ratio_error: float = 0.03,
-) -> list[tuple[Point, Point, Polygon]]:
-    valid_cuts = []
-    skipped_boundary_cuts = 0
-
-    for piece in cake.exterior_pieces:
-        # try all pairs
-        for i, xy1 in enumerate(perim_points):
-            for xy2 in perim_points[i + 1 :]:
-                # OPTIMIZATION: Skip cuts that would lie along the boundary (performance improvement)
-                if _would_cut_along_boundary(xy1, xy2, piece):
-                    skipped_boundary_cuts += 1
-                    continue
-
-                if cake.cut_is_valid(xy1, xy2):
-                    areas_and_ratios_valid, area_diff, ratio_diff = (
-                        get_areas_and_ratios(
-                            cake,
-                            xy1,
-                            xy2,
-                            target_ratio,
-                            original_area,
-                            original_ratio,
-                            acceptable_area_error,
-                            acceptable_ratio_error,
-                        )
-                    )
-
-                    if areas_and_ratios_valid:
-                        valid_cuts.append((xy1, xy2, piece, area_diff, ratio_diff))
-
-    # sort by almost to least accurate just in terms of area (future incorporate ratio)
-    valid_cuts.sort(key=lambda x: (x[3], x[4]))
-
-    # Optional: Print optimization stats
-    if skipped_boundary_cuts > 0:
-        print(f"Optimization: Skipped {skipped_boundary_cuts} boundary cuts")
-
-    return [(xy1, xy2, piece) for xy1, xy2, piece, _, _ in valid_cuts]
+    return [(xy1, xy2) for xy1, xy2, _, _ in valid_cuts]
