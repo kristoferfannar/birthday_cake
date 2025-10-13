@@ -9,12 +9,13 @@ from typing import List, Tuple, Optional
 
 
 class Player5(Player):
-    # Sweeps
-    NUM_DIRECTIONS = 64  # directions over [0, π)
-    OFFSETS_PER_DIRECTION = 240  # offsets per direction
+    NUM_DIRECTIONS = 64 # directions over [0, π)
+    OFFSETS_COARSE = 64 # coarse passes
+    OFFSETS_LOCAL = 30 # local micro-scan around best offset
+    LOCAL_WINDOW_FRAC = 0.04  #window as a fraction of (s_max - s_min)
     MAX_VERTEX_ENUM = 240
-    REFINE_ITERS = 60
-    REFINE_EPS = 1e-9
+    REFINE_ITERS = 70
+    REFINE_EPS = 5e-10
 
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
@@ -39,30 +40,34 @@ class Player5(Player):
         S = 0.0  # running deviation: sum(produced) - m * A_star
 
         for i in range(self.children - 1):
-            piece = max(temp_cake.get_pieces(), key=lambda p: p.area)
+            pieces = temp_cake.get_pieces()
+            piece = max(pieces, key=lambda p: p.area)
             piece = self._clean(piece)
 
             r = self.children - i
             desired = A_star - (S / r)
 
-            # Clamp to feasible (strict interior)
-            eps = max(1e-6, 1e-4 * piece.area)
+            # Clamp in final 3 cuts
+            remaining = self.children - i
+            base_eps = max(1e-6, 1e-4 * piece.area)
+            tight_eps = max(2e-6, 8e-4 * piece.area)
+            eps = tight_eps if remaining <= 3 else base_eps
             desired = max(eps, min(desired, piece.area - eps))
 
-            # Tighter tolerance on the final cut (guarantees last two pieces land within spread)
-            tol = (
-                self.area_tol
-                if i < self.children - 2
-                else max(5e-4, self.area_tol * 0.8)
-            )
+            # Tighter tolerance near the end
+            if remaining <= 3:
+                tol = max(2e-4, self.area_tol * 0.5)
+            elif remaining == 4:
+                tol = max(3e-4, self.area_tol * 0.7)
+            else:
+                tol = self.area_tol
 
-            best = self._best_segment_for_target(temp_cake, piece, desired, tol)
-            if best is None:
+            cand = self._best_segment_for_target(temp_cake, piece, desired, tol)
+            if cand is None:
                 raise PlayerException(f"Could not find valid cut for piece {i + 1}")
+            a, b, produced_area = cand
 
-            a, b, produced_area = best
             S += produced_area - A_star
-
             moves.append((a, b))
             temp_cake.cut(a, b)
 
@@ -78,7 +83,6 @@ class Player5(Player):
         return moves
 
     # Segment search
-
     def _best_segment_for_target(
         self, temp_cake_obj: Cake, polygon: Polygon, target_area: float, area_tol: float
     ) -> Optional[Tuple[Point, Point, float]]:
@@ -89,7 +93,7 @@ class Player5(Player):
         best_tuple: Optional[Tuple[Point, Point, float]] = None
         best_err = float("inf")
 
-        # Try vertex–vertex chords first on small polygons (often perfect early hits)
+        #Try vertex–vertex chords first
         for seg in self._vertex_pair_chords(poly):
             cand = self._eval_segment(temp_cake_obj, poly, seg, target_area)
             if cand is None:
@@ -101,9 +105,9 @@ class Player5(Player):
                 best_err = err
                 best_tuple = (a, b, produced_area)
 
-        # Directional sweeps with bracketed refinement
+        # 2) Directional sweeps with adaptive offsets
         for ux, uy in self._direction_set(poly):
-            cand = self._search_direction_with_refine(
+            cand = self._search_direction_adaptive(
                 temp_cake_obj, poly, (ux, uy), target_area, area_tol
             )
             if cand is None:
@@ -125,7 +129,7 @@ class Player5(Player):
             dirs.append((math.cos(th), math.sin(th)))
         return dirs
 
-    def _search_direction_with_refine(
+    def _search_direction_adaptive(
         self,
         temp_cake_obj: Cake,
         poly: Polygon,
@@ -133,7 +137,7 @@ class Player5(Player):
         target_area: float,
         area_tol: float,
     ) -> Optional[Tuple[Point, Point, float, float]]:
-        """Sweep offsets; when two neighboring offsets bracket target, refine by bisection."""
+
         ux, uy = self._unit(direction)
         nx, ny = -uy, ux
 
@@ -148,19 +152,20 @@ class Player5(Player):
         dots = [(vx - cx) * nx + (vy - cy) * ny for (vx, vy) in verts]
         s_min = min(dots) - diameter * 0.5
         s_max = max(dots) + diameter * 0.5
+        span = s_max - s_min
+        if span <= 0:
+            return None
 
         best: Optional[Tuple[Point, Point, float, float]] = None
         best_err = float("inf")
 
+        # Course
         prev_s = None
-        prev_err = None
+        prev_signed = None
+        best_s = None
 
-        for j in range(self.OFFSETS_PER_DIRECTION):
-            t = (
-                j / (self.OFFSETS_PER_DIRECTION - 1)
-                if self.OFFSETS_PER_DIRECTION > 1
-                else 0.5
-            )
+        for j in range(self.OFFSETS_COARSE):
+            t = j / (self.OFFSETS_COARSE - 1) if self.OFFSETS_COARSE > 1 else 0.5
             s = s_min * (1.0 - t) + s_max * t
 
             x0, y0 = cx + s * nx, cy + s * ny
@@ -168,39 +173,43 @@ class Player5(Player):
             b_inf = Point(x0 + ux * L, y0 + uy * L)
             inf_line = LS([a_inf, b_inf])
 
-            # Evaluate all chords on this line; pick the best legal one
-            chord_cand = self._best_chord_on_line(
-                temp_cake_obj, poly, inf_line, target_area
-            )
+            chord_cand = self._best_chord_on_line(temp_cake_obj, poly, inf_line, target_area)
             if chord_cand is None:
                 continue
-            a, b, produced_area, err = chord_cand
 
-            # Track best
-            if err <= area_tol:
-                return (a, b, produced_area, err)
+            a, b, produced_area, err = chord_cand
             if err < best_err:
                 best_err = err
                 best = (a, b, produced_area, err)
+                best_s = s
 
-            # inside bracket
+            if err <= area_tol:
+                # micro-nudge
+                best_local = (a, b, produced_area, err)
+                delta = span * 1e-3
+                for sign in (-1.0, 1.0):
+                    s2 = s + sign * delta
+                    x02, y02 = cx + s2 * nx, cy + s2 * ny
+                    a_inf2 = Point(x02 - ux * L, y02 - uy * L)
+                    b_inf2 = Point(x02 + ux * L, y02 + uy * L)
+                    inf_line2 = LS([a_inf2, b_inf2])
+                    c2 = self._best_chord_on_line(temp_cake_obj, poly, inf_line2, target_area)
+                    if c2 is None:
+                        continue
+                    a2, b2, A2, e2 = c2
+                    if e2 <= area_tol and e2 < best_local[3]:
+                        best_local = (a2, b2, A2, e2)
+                return best_local
+
             signed = produced_area - target_area
-            if prev_s is not None and prev_err is not None:
-                prev_signed = prev_err  # signed error there
+            if prev_s is not None and prev_signed is not None:
                 if signed == 0 or prev_signed == 0 or (signed > 0) != (prev_signed > 0):
-                    # Refine between prev_s and s
+                    #refine by bisection
                     ref = self._refine_between_offsets(
-                        temp_cake_obj,
-                        poly,
-                        (ux, uy),
-                        (nx, ny),
-                        cx,
-                        cy,
-                        L,
-                        prev_s,
-                        s,
-                        target_area,
-                        area_tol,
+                        temp_cake_obj, poly, (ux, uy), (nx, ny),
+                        cx, cy, L,
+                        prev_s, s,
+                        target_area, area_tol
                     )
                     if ref is not None:
                         ra, rb, rA, rerr = ref
@@ -209,11 +218,51 @@ class Player5(Player):
                         if rerr < best_err:
                             best_err = rerr
                             best = (ra, rb, rA, rerr)
-
             prev_s = s
-            prev_err = signed
+            prev_signed = signed
 
-        return best
+        # best coarse offset
+        if best_s is not None:
+            half_window = max(span * self.LOCAL_WINDOW_FRAC, span * 1e-3)
+            s_lo = best_s - half_window
+            s_hi = best_s + half_window
+            for j in range(self.OFFSETS_LOCAL):
+                t = j / (self.OFFSETS_LOCAL - 1) if self.OFFSETS_LOCAL > 1 else 0.5
+                s = s_lo * (1.0 - t) + s_hi * t
+
+                x0, y0 = cx + s * nx, cy + s * ny
+                a_inf = Point(x0 - ux * L, y0 - uy * L)
+                b_inf = Point(x0 + ux * L, y0 + uy * L)
+                inf_line = LS([a_inf, b_inf])
+
+                chord_cand = self._best_chord_on_line(temp_cake_obj, poly, inf_line, target_area)
+                if chord_cand is None:
+                    continue
+
+                a, b, produced_area, err = chord_cand
+                if err <= area_tol:
+                    # micro-nudge
+                    best_local = (a, b, produced_area, err)
+                    delta = span * 1e-3
+                    for sign in (-1.0, 1.0):
+                        s2 = s + sign * delta
+                        x02, y02 = cx + s2 * nx, cy + s2 * ny
+                        a_inf2 = Point(x02 - ux * L, y02 - uy * L)
+                        b_inf2 = Point(x02 + ux * L, y02 + uy * L)
+                        inf_line2 = LS([a_inf2, b_inf2])
+                        c2 = self._best_chord_on_line(temp_cake_obj, poly, inf_line2, target_area)
+                        if c2 is None:
+                            continue
+                        a2, b2, A2, e2 = c2
+                        if e2 <= area_tol and e2 < best_local[3]:
+                            best_local = (a2, b2, A2, e2)
+                    return best_local
+
+                if err < best_err:
+                    best_err = err
+                    best = (a, b, produced_area, err)
+
+        return best  # may be None
 
     def _refine_between_offsets(
         self,
@@ -250,7 +299,6 @@ class Player5(Player):
             mid = 0.5 * (lo + hi)
             cand = eval_at(mid)
             if cand is None:
-                # If invalid geometry
                 hi = mid
                 continue
             a, b, produced_area, err = cand
@@ -259,7 +307,6 @@ class Player5(Player):
             if err < best_err:
                 best_err = err
                 best = (a, b, produced_area, err)
-            # Move side based on sign of (produced - target)
             if (produced_area - target_area) > 0:
                 hi = mid
             else:
