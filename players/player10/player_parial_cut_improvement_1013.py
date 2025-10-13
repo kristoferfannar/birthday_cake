@@ -10,7 +10,7 @@ from src.cake import Cake
 from shapely.ops import split
 
 COMPUTATION_RATIO = 1
-PHRASE_ONE_TOTAL_ATTEMPS = 90 * 9 * COMPUTATION_RATIO
+PHRASE_ONE_TOTAL_ATTEMPS = 60 * 9 * COMPUTATION_RATIO
 PHRASE_TWO_TOTAL_ATTEMPS = 360 * 9 * COMPUTATION_RATIO
 PHRASE_THREE_TOTAL_ATTEMPS = 90 * 9 * COMPUTATION_RATIO
 PHRASE_THREE_STEP = 2
@@ -29,13 +29,13 @@ class Player10(Player):
         # Binary search tolerance: area within 0.5 cm² of target
         self.target_area_tolerance = 0.0001
         # Number of different angles to try in phase 1 (more attempts = better for complex shapes)
-        self.phrase_one_attempts = PHRASE_ONE_TOTAL_ATTEMPS // children
+        self.phrase_one_attempts = PHRASE_ONE_TOTAL_ATTEMPS // (children - 1)
         # Number of different angles to try in phase 2 (more attempts = better for complex shapes)
-        self.phrase_two_attempts = PHRASE_TWO_TOTAL_ATTEMPS // children
+        self.phrase_two_attempts = PHRASE_TWO_TOTAL_ATTEMPS // (children - 1)
         # Number of different angles to try in phase 3 (fine-grained search)
-        self.phrase_three_attempts = PHRASE_THREE_TOTAL_ATTEMPS // children
+        self.phrase_three_attempts = PHRASE_THREE_TOTAL_ATTEMPS // (children - 1)
         # Number of processes for concurrent search
-        self.num_of_processes = min(num_of_processes, mp.cpu_count())
+        self.num_of_processes = num_of_processes
 
     def find_line(self, position: float, piece: Polygon, angle: float):
         """Make a line at a given angle through a position that cuts the piece.
@@ -372,25 +372,25 @@ class Player10(Player):
 
     def _is_complex_shape(self, piece: Polygon) -> bool:
         """Determine if a piece is a complex shape that needs special handling."""
-        # Simple heuristics to detect complex vs simple shapes
+        # Enhanced heuristics to detect complex shapes like Hilbert curves
 
         # 1. Check the number of vertices - complex shapes tend to have more vertices
         if hasattr(piece, 'exterior') and piece.exterior:
             num_vertices = len(piece.exterior.coords) - 1  # -1 because first and last are the same
-            if num_vertices > 20:  # Arbitrary threshold for "complex"
+            if num_vertices > 15:  # Lower threshold for Hilbert curves
                 return True
 
-        # 2. Check aspect ratio - very elongated shapes might be complex
+        # 2. Check aspect ratio - very elongated or square-like shapes
         bounds = piece.bounds
         width = bounds[2] - bounds[0]
         height = bounds[3] - bounds[1]
         aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else float('inf')
 
-        if aspect_ratio > 5:  # Very elongated
+        # Very elongated or very square shapes might be complex
+        if aspect_ratio > 3 or aspect_ratio < 1.2:
             return True
 
-        # 3. Check if the shape has many "indentations" (concave parts)
-        # This is harder to detect, but we can check the boundary complexity
+        # 3. Check boundary complexity - Hilbert curves have very complex boundaries
         if hasattr(piece, 'boundary') and piece.boundary:
             boundary_length = piece.boundary.length
             area = piece.area
@@ -398,15 +398,41 @@ class Player10(Player):
             # Complex shapes tend to have higher perimeter-to-area ratio
             if area > 0:
                 complexity_ratio = boundary_length / area
-                if complexity_ratio > 2.0:  # Arbitrary threshold
+                if complexity_ratio > 1.8:  # Lower threshold for Hilbert curves
                     return True
 
         # 4. Check if the shape is very small compared to its bounding box (irregular shape)
         if area > 0:
             bbox_area = width * height
             fill_ratio = area / bbox_area
-            if fill_ratio < 0.3:  # Very sparse/irregular shape
+            if fill_ratio < 0.4:  # More lenient for complex shapes
                 return True
+
+        # 5. Special check for known complex patterns
+        # Hilbert curves often have characteristic patterns
+        if hasattr(piece, 'exterior') and piece.exterior:
+            coords = list(piece.exterior.coords)
+            if len(coords) > 10:
+                # Check for repeating patterns or fractal-like structures
+                # This is a simple heuristic - in practice, more sophisticated analysis could be done
+                x_coords = [c[0] for c in coords[:-1]]  # Exclude closing point
+                y_coords = [c[1] for c in coords[:-1]]
+
+                # Check for regular spacing patterns (characteristic of Hilbert curves)
+                x_unique = sorted(set(x_coords))
+                y_unique = sorted(set(y_coords))
+
+                # If coordinates are very regularly spaced, it might be a Hilbert curve
+                if len(x_unique) > 5 and len(y_unique) > 5:
+                    x_spacing = [x_unique[i+1] - x_unique[i] for i in range(len(x_unique)-1)]
+                    y_spacing = [y_unique[i+1] - y_unique[i] for i in range(len(y_unique)-1)]
+
+                    # Check if spacings are very regular (Hilbert curve characteristic)
+                    x_variance = sum((s - sum(x_spacing)/len(x_spacing))**2 for s in x_spacing) / len(x_spacing)
+                    y_variance = sum((s - sum(y_spacing)/len(y_spacing))**2 for s in y_spacing) / len(y_spacing)
+
+                    if x_variance < 0.1 and y_variance < 0.1:  # Very regular spacing
+                        return True
 
         return False
 
@@ -792,54 +818,37 @@ class Player10(Player):
                     attempts_to_try.append((split_children, angle, "phase1"))
 
             # Phase 1: Random sample all split ratios (first half)
-            for _ in range(self.phrase_one_attempts // 2):
+            for _ in range(self.phrase_one_attempts):
                 split_children = random.randint(min_split, max_split)
                 angle = random.uniform(0, 180)
                 attempts_to_try.append((split_children, angle, "phase1"))
 
-            # Process Phase 1 attempts concurrently
-            print(f"  Phase 1: Processing {len(attempts_to_try)} attempts across {self.num_of_processes} processes...")
+            # Process Phase 1 attempts sequentially
+            print(f"  Phase 1: Processing {len(attempts_to_try)} attempts sequentially...")
+            for args in attempts_to_try:
+                result = self._evaluate_attempt((
+                    args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
+                ))
+                if result:
+                    valid_attempts += 1
 
-            # Split attempts into batches for each process
-            batch_size = max(1, len(attempts_to_try) // self.num_of_processes)
-            batches = [attempts_to_try[i:i + batch_size] for i in range(0, len(attempts_to_try), batch_size)]
+                    # Update best scores
+                    split_children = result['split_children']
+                    if result['score'] < split_ratio_scores[split_children]:
+                        split_ratio_scores[split_children] = result['score']
 
-            # Use ProcessPoolExecutor for concurrent processing
-            with ProcessPoolExecutor(max_workers=self.num_of_processes) as executor:
-                # Submit all batches
-                future_to_batch = {
-                    executor.submit(self._process_batch, batch, cutting_piece, cutting_num_children, target_area, target_ratio): batch
-                    for batch in batches
-                }
-
-                # Collect results as they complete
-                for future in as_completed(future_to_batch):
-                    try:
-                        result = future.result()
-                        if result:
-                            valid_attempts += 1
-
-                            # Update best scores
-                            split_children = result['split_children']
-                            if result['score'] < split_ratio_scores[split_children]:
-                                split_ratio_scores[split_children] = result['score']
-
-                            if result['score'] < best_score:
-                                best_score = result['score']
-                                best_cut = (
-                                    result['cut_points'][0],
-                                    result['cut_points'][1],
-                                    result['small_piece'],
-                                    result['large_piece'],
-                                    result['ratio1'],
-                                    result['ratio2'],
-                                    result['angle'],
-                                )
-                                best_split_ratio = (split_children, result['remaining_children'])
-
-                    except Exception as e:
-                        print(f"    Error in batch processing: {e}")
-                        continue
+                    if result['score'] < best_score:
+                        best_score = result['score']
+                        best_cut = (
+                            result['cut_points'][0],
+                            result['cut_points'][1],
+                            result['small_piece'],
+                            result['large_piece'],
+                            result['ratio1'],
+                            result['ratio2'],
+                            result['angle'],
+                        )
+                        best_split_ratio = (split_children, result['remaining_children'])
 
             # Phase 2: Use the best split ratio found, only vary angles
             if split_ratio_scores:
@@ -852,7 +861,7 @@ class Player10(Player):
                     f"  Phase 1 complete. Best split ratio: {best_ratio_from_phase1}/{cutting_num_children}"
                 )
                 print(
-                    f"  Phase 2: Trying {self.phrase_two_attempts} more angles with best ratio across {self.num_of_processes} processes..."
+                    f"  Phase 2: Trying {self.phrase_two_attempts} more angles with best ratio..."
                 )
 
                 remaining_children_phase2 = (
@@ -864,44 +873,28 @@ class Player10(Player):
                 angle_step = 360.0 / self.phrase_two_attempts
                 phase2_angles = [i * angle_step for i in range(self.phrase_two_attempts)]
 
-                # Process Phase 2 attempts concurrently
+                # Process Phase 2 attempts sequentially
                 phase2_attempts_to_try = [(best_ratio_from_phase1, angle, "phase2") for angle in phase2_angles]
+                print(f"  Phase 2: Processing {len(phase2_attempts_to_try)} attempts sequentially...")
+                for args in phase2_attempts_to_try:
+                    result = self._evaluate_attempt((
+                        args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
+                    ))
+                    if result:
+                        valid_attempts += 1
 
-                # Split phase 2 attempts into batches for each process
-                batch_size = max(1, len(phase2_attempts_to_try) // self.num_of_processes)
-                batches = [phase2_attempts_to_try[i:i + batch_size] for i in range(0, len(phase2_attempts_to_try), batch_size)]
-
-                # Use ProcessPoolExecutor for concurrent processing
-                with ProcessPoolExecutor(max_workers=self.num_of_processes) as executor:
-                    # Submit all batches
-                    future_to_batch = {
-                        executor.submit(self._process_batch, batch, cutting_piece, cutting_num_children, target_area, target_ratio): batch
-                        for batch in batches
-                    }
-
-                    # Collect results as they complete
-                    for future in as_completed(future_to_batch):
-                        try:
-                            result = future.result()
-                            if result:
-                                valid_attempts += 1
-
-                                if result['score'] < best_score:
-                                    best_score = result['score']
-                                    best_cut = (
-                                        result['cut_points'][0],
-                                        result['cut_points'][1],
-                                        result['small_piece'],
-                                        result['large_piece'],
-                                        result['ratio1'],
-                                        result['ratio2'],
-                                        result['angle'],
-                                    )
-                                    best_split_ratio = (result['split_children'], result['remaining_children'])
-
-                        except Exception as e:
-                            print(f"    Error in phase 2 batch processing: {e}")
-                            continue
+                        if result['score'] < best_score:
+                            best_score = result['score']
+                            best_cut = (
+                                result['cut_points'][0],
+                                result['cut_points'][1],
+                                result['small_piece'],
+                                result['large_piece'],
+                                result['ratio1'],
+                                result['ratio2'],
+                                result['angle'],
+                            )
+                            best_split_ratio = (result['split_children'], result['remaining_children'])
 
             # Phase 3: Fine-grained search around the best angle
             if best_cut is not None:
@@ -931,44 +924,29 @@ class Player10(Player):
                 else:
                     phase3_angles = [best_angle]
 
-                # Process Phase 3 attempts concurrently
                 phase3_attempts_to_try = [(best_ratio_from_phase1, angle, "phase3") for angle in phase3_angles]
 
-                # Split phase 3 attempts into batches for each process
-                batch_size = max(1, len(phase3_attempts_to_try) // self.num_of_processes)
-                batches = [phase3_attempts_to_try[i:i + batch_size] for i in range(0, len(phase3_attempts_to_try), batch_size)]
+                # Process Phase 3 attempts sequentially
+                print(f"  Phase 3: Processing {len(phase3_attempts_to_try)} attempts sequentially...")
+                for args in phase3_attempts_to_try:
+                    result = self._evaluate_attempt((
+                        args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
+                    ))
+                    if result:
+                        valid_attempts += 1
 
-                # Use ProcessPoolExecutor for concurrent processing
-                with ProcessPoolExecutor(max_workers=self.num_of_processes) as executor:
-                    # Submit all batches
-                    future_to_batch = {
-                        executor.submit(self._process_batch, batch, cutting_piece, cutting_num_children, target_area, target_ratio): batch
-                        for batch in batches
-                    }
-
-                    # Collect results as they complete
-                    for future in as_completed(future_to_batch):
-                        try:
-                            result = future.result()
-                            if result:
-                                valid_attempts += 1
-
-                                if result['score'] < best_score:
-                                    best_score = result['score']
-                                    best_cut = (
-                                        result['cut_points'][0],
-                                        result['cut_points'][1],
-                                        result['small_piece'],
-                                        result['large_piece'],
-                                        result['ratio1'],
-                                        result['ratio2'],
-                                        result['angle'],
-                                    )
-                                    best_split_ratio = (result['split_children'], result['remaining_children'])
-
-                        except Exception as e:
-                            print(f"    Error in phase 3 batch processing: {e}")
-                            continue
+                        if result['score'] < best_score:
+                            best_score = result['score']
+                            best_cut = (
+                                result['cut_points'][0],
+                                result['cut_points'][1],
+                                result['small_piece'],
+                                result['large_piece'],
+                                result['ratio1'],
+                                result['ratio2'],
+                                result['angle'],
+                            )
+                            best_split_ratio = (result['split_children'], result['remaining_children'])
 
                 print(
                     f"    Phase 3 complete. Final best angle: {best_cut[6]:.1f}° with score {best_score:.3f}"
@@ -978,7 +956,7 @@ class Player10(Player):
                     f"    Best cut found with score {best_score:.3f}"
                 )
             if best_cut is None:
-                print(f"  No valid cut found after {len(attempts_to_try) + len(phase2_attempts_to_try)} attempts!")
+                print(f"  No valid cut found after {len(attempts_to_try) + len(phase2_attempts_to_try) + self.phrase_three_attempts} attempts!")
                 # Put the piece back for now (shouldn't happen often)
                 pieces_queue.append((cutting_piece, cutting_num_children))
                 continue
@@ -1037,4 +1015,93 @@ class Player10(Player):
         )
         print(f"{'=' * 50}\n")
 
+        # Additional refinement for complex shapes to improve crust ratio consistency
+        # Check if the original cake shape is complex (before any cuts)
+        original_shape = cake_copy.exterior_shape
+        if self._is_complex_shape(original_shape):
+            print("Applying additional refinement for complex shape...")
+            all_cuts = self._refine_cuts_for_complex_shape(all_cuts, cake_copy)
+
         return all_cuts
+
+    def _refine_cuts_for_complex_shape(self, cuts: list, cake: Cake) -> list:
+        """Apply additional refinement to improve crust ratio consistency for complex shapes."""
+        print("  Refining cuts for complex shape...")
+
+        # Strategy 1: Try different cut orders
+        if len(cuts) > 2:  # Only for cakes with multiple cuts
+            alternative_cuts = self._try_alternative_cut_order(cuts, cake.copy())
+            if alternative_cuts:
+                # Check if the alternative order gives better crust ratio consistency
+                original_ratios = cake.get_piece_ratios()
+                alt_cake = cake.copy()
+                for cut in alternative_cuts:
+                    alt_cake.cut(cut[0], cut[1])
+
+                alt_ratios = alt_cake.get_piece_ratios()
+
+                if len(alt_ratios) > 1 and len(original_ratios) > 1:
+                    from statistics import stdev
+                    original_stdev = stdev(original_ratios) if len(original_ratios) > 1 else 0
+                    alt_stdev = stdev(alt_ratios) if len(alt_ratios) > 1 else 0
+
+                    # Use the better (lower stdev) cut order
+                    if alt_stdev < original_stdev:
+                        print(f"  Alternative cut order improved stdev from {original_stdev:.3f} to {alt_stdev:.3f}")
+                        return alternative_cuts
+
+        # Strategy 2: For very complex shapes, try to optimize individual cuts
+        # This is more expensive but can help with stubborn cases
+        if len(cuts) > 5:  # Only for very complex cakes
+            print("  Attempting individual cut optimization...")
+            optimized_cuts = self._optimize_individual_cuts(cuts, cake.copy())
+            if optimized_cuts:
+                return optimized_cuts
+
+        return cuts
+
+    def _try_alternative_cut_order(self, cuts: list, cake: Cake) -> list | None:
+        """Try alternative cut orders for better crust ratio consistency."""
+        # For complex shapes, the order of cuts can affect the final crust ratio distribution
+        # Try reversing the cut order or other permutations
+
+        if len(cuts) <= 2:
+            return None  # Not enough cuts to reorder meaningfully
+
+        # Try reversing the order
+        reversed_cuts = list(reversed(cuts))
+        test_cake = cake.copy()
+
+        try:
+            for cut in reversed_cuts:
+                test_cake.cut(cut[0], cut[1])
+
+            # If successful, return the reversed order
+            return reversed_cuts
+        except:
+            return None  # Reversed order didn't work
+
+    def _optimize_individual_cuts(self, cuts: list, cake: Cake) -> list | None:
+        """Try to optimize individual cuts for better overall consistency."""
+        # For very complex shapes, try to adjust problematic cuts
+        # This is a simplified approach - in practice, this could be much more sophisticated
+
+        optimized_cuts = []
+        cake_copy = cake.copy()
+
+        for i, cut in enumerate(cuts):
+            # Apply the cut
+            try:
+                cake_copy.cut(cut[0], cut[1])
+                optimized_cuts.append(cut)
+            except:
+                # If this cut fails, try to find a replacement
+                print(f"    Cut {i+1} failed, trying to find replacement...")
+                # For now, just skip this cut (simplified approach)
+                # In a more sophisticated implementation, we could try alternative cuts
+                continue
+
+        if len(optimized_cuts) == len(cuts):
+            return optimized_cuts
+        else:
+            return None  # Optimization failed
