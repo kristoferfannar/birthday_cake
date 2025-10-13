@@ -25,6 +25,7 @@ class Player3(Player):
         remaining_children = self.children
 
         while remaining_children > 1:
+            print(f"Remaining children: {remaining_children}")
 
             largest_piece = max(working_cake.get_pieces(), key=lambda piece: piece.area)
             target_ratio = 1.0 / remaining_children

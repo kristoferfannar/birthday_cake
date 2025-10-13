@@ -109,7 +109,6 @@ def find_valid_cuts_binary_search(cake: Cake, perim_points: list[Point] | None, 
         split_pieces = cake.cut_piece(largest_piece, xy1, xy2)
         ratios = [cake.get_piece_ratio(piece) for piece in split_pieces]
         ratio_diffs = [abs(ratio - original_ratio) for ratio in ratios]
-        print(ratio_diffs)
 
         # find the worst ratio diff since both pieces should conserve ratio
         ratio_diff = max(ratio_diffs)
