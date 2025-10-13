@@ -44,25 +44,25 @@ def binary_search_cut(cake: Cake, xy1: Point, target_area: float, largest_piece:
     xy2_angle = math.atan2(rise, run)
 
     # we want to search +/- 180 degrees from initial angle
-    l = xy2_angle - math.pi
-    r = xy2_angle + math.pi
+    left = xy2_angle - math.pi
+    right = xy2_angle + math.pi
 
     best_xy2 = None
     best_area_diff = float('inf')
 
     #standard binary search. stop when within 0.001 radians
-    while r > 0.001 + l:
-        mid = (l + r) / 2
+    while right > 0.001 + left:
+        mid = (left + right) / 2
         xy2 = find_point(xy1, mid, largest_piece)
 
         if xy2 is None:
-            l = mid
+            left = mid
             continue
 
         valid, _ = cake.cut_is_valid(xy1, xy2)
 
         if not valid:
-            l = mid
+            left = mid
             continue
 
         target_piece, _ = cake.get_cuttable_piece(xy1, xy2)
@@ -82,9 +82,9 @@ def binary_search_cut(cake: Cake, xy1: Point, target_area: float, largest_piece:
         min_area = min(areas)
 
         if min_area < target_area:
-            l = mid
+            left = mid
         else:
-            r = mid
+            right = mid
 
     # reduce threshold
     if best_xy2 and best_area_diff < 0.20:
