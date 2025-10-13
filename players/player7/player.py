@@ -13,10 +13,6 @@ def copy_geom(g):
     return wkb.loads(wkb.dumps(g))
 
 
-def copy_geom(g):
-    return wkb.loads(wkb.dumps(g))
-
-
 class Player7(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
