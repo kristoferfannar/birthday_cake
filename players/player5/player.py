@@ -10,10 +10,10 @@ from typing import List, Tuple, Optional
 
 class Player5(Player):
     # Sweeps
-    NUM_DIRECTIONS = 36  # directions over [0, π)
-    OFFSETS_PER_DIRECTION = 140  # offsets per direction
-    MAX_VERTEX_ENUM = 120
-    REFINE_ITERS = 40
+    NUM_DIRECTIONS = 64  # directions over [0, π)
+    OFFSETS_PER_DIRECTION = 240  # offsets per direction
+    MAX_VERTEX_ENUM = 240
+    REFINE_ITERS = 60
     REFINE_EPS = 1e-9
 
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
