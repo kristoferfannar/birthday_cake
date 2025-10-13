@@ -9,7 +9,7 @@ from players.player import Player
 from src.cake import Cake
 from shapely.ops import split
 
-COMPUTATION_RATIO = 6
+COMPUTATION_RATIO = 1
 PHRASE_ONE_TOTAL_ATTEMPS = 90 * 9 * COMPUTATION_RATIO
 PHRASE_TWO_TOTAL_ATTEMPS = 360 * 9 * COMPUTATION_RATIO
 PHRASE_THREE_TOTAL_ATTEMPS = 90 * 9 * COMPUTATION_RATIO
@@ -22,18 +22,18 @@ class Player10(Player):
         children: int,
         cake: Cake,
         cake_path: str | None,
-        phrase_three_attempts: int = 180,
+        # phrase_three_attempts: int = 180,
         num_of_processes: int = 8,
     ) -> None:
         super().__init__(children, cake, cake_path)
         # Binary search tolerance: area within 0.5 cm² of target
         self.target_area_tolerance = 0.0001
         # Number of different angles to try in phase 1 (more attempts = better for complex shapes)
-        self.phrase_one_attempts = PHRASE_ONE_TOTAL_ATTEMPS // (children - 1)
+        self.phrase_one_attempts = PHRASE_ONE_TOTAL_ATTEMPS // children
         # Number of different angles to try in phase 2 (more attempts = better for complex shapes)
-        self.phrase_two_attempts = PHRASE_TWO_TOTAL_ATTEMPS // (children - 1)
+        self.phrase_two_attempts = PHRASE_TWO_TOTAL_ATTEMPS // children
         # Number of different angles to try in phase 3 (fine-grained search)
-        self.phrase_three_attempts = PHRASE_THREE_TOTAL_ATTEMPS // (children - 1)
+        self.phrase_three_attempts = PHRASE_THREE_TOTAL_ATTEMPS // children
         # Number of processes for concurrent search
         self.num_of_processes = min(num_of_processes, mp.cpu_count())
 
@@ -105,6 +105,7 @@ class Player10(Player):
                     coords = list(geom.coords)
                     points.extend([Point(coords[0]), Point(coords[-1])])
 
+        # Remove duplicates and sort by position along the line for better pair selection
         unique_points = []
         tolerance = 1e-6
         for p in points:
@@ -115,35 +116,416 @@ class Player10(Player):
                     break
             if not is_duplicate:
                 unique_points.append(p)
-        points = unique_points
 
-        if len(points) < 2:
+        if len(unique_points) < 2:
             return None  # Not enough points for a valid cut
 
-        # If exactly 2 points, use them
-        if len(points) == 2:
-            return (points[0], points[1])
+        # Sort points by their position along the cut line for better pair selection
+        def sort_key(point):
+            # Project point onto the cut line direction
+            line_vector = (line.coords[1][0] - line.coords[0][0],
+                          line.coords[1][1] - line.coords[0][1])
+            point_vector = (point.x - line.coords[0][0],
+                           point.y - line.coords[0][1])
+            # Use dot product for projection
+            return point_vector[0] * line_vector[0] + point_vector[1] * line_vector[1]
 
-        # If more than 2 points, we need to find the pair that creates a valid cut
-        # A valid cut should split the piece into exactly 2 pieces
-        # Try all pairs and find the one that works
-        from itertools import combinations
+        sorted_points = sorted(unique_points, key=sort_key)
 
-        for p1, p2 in combinations(points, 2):
-            test_line = LineString([p1, p2])
-            # Check if this line segment is mostly inside the piece
-            # by checking if the midpoint is inside
-            midpoint = test_line.interpolate(0.5, normalized=True)
-            if piece.contains(midpoint) or piece.boundary.contains(midpoint):
-                # Also verify this cut would split into exactly 2 pieces
-                from shapely.ops import split as shapely_split
+        # If exactly 2 points, use them (already sorted)
+        if len(sorted_points) == 2:
+            return (sorted_points[0], sorted_points[1])
 
-                result = shapely_split(piece, test_line)
-                if len(result.geoms) == 2:
+        # Check if this is a complex shape (like Hilbert curve) that needs special handling
+        is_complex_shape = self._is_complex_shape(piece)
+
+        if is_complex_shape:
+            # Use specialized method for complex shapes
+            return self._find_cuts_for_complex_shape(line, piece)
+
+        # For regular shapes, use the standard approach
+        # Strategy 1: Prioritize short, clean cuts first (most reliable for complex shapes)
+        max_reasonable_distance = piece.bounds[2] - piece.bounds[0]  # width of bounding box
+
+        # Try pairs in order of increasing distance (shorter cuts first)
+        pair_candidates = []
+        for i in range(len(sorted_points)):
+            for j in range(i + 1, len(sorted_points)):
+                p1, p2 = sorted_points[i], sorted_points[j]
+                distance = p1.distance(p2)
+                # Only consider reasonable distance cuts
+                if distance <= max_reasonable_distance * 0.7:
+                    pair_candidates.append((distance, (p1, p2)))
+
+        # Sort by distance (shorter first)
+        pair_candidates.sort(key=lambda x: x[0])
+
+        # Try shortest pairs first
+        for distance, (p1, p2) in pair_candidates:
+            if self._is_valid_cut_pair_conservative(p1, p2, piece, line):
+                return (p1, p2)
+
+        # Strategy 2: If no short cuts work, try slightly longer ones
+        for distance, (p1, p2) in pair_candidates:
+            if distance <= max_reasonable_distance * 0.9:
+                if self._is_valid_cut_pair_conservative(p1, p2, piece, line):
                     return (p1, p2)
+
+        # Strategy 3: Try all pairs with robust validation (best for complex shapes)
+        from itertools import combinations
+        best_pair = None
+        best_score = float('inf')
+
+        for p1, p2 in combinations(sorted_points, 2):
+            if self._is_valid_cut_pair_robust(p1, p2, piece, line):
+                # Calculate a score for this pair (shorter cuts are generally better for complex shapes)
+                cut_length = p1.distance(p2)
+                score = cut_length
+
+                if score < best_score:
+                    best_score = score
+                    best_pair = (p1, p2)
+
+        if best_pair:
+            return best_pair
+
+        # Strategy 4: Try all pairs with conservative validation
+        for p1, p2 in combinations(sorted_points, 2):
+            if self._is_valid_cut_pair_conservative(p1, p2, piece, line):
+                return (p1, p2)
+
+        # Strategy 5: Ultimate fallback - try consecutive pairs with minimal validation
+        # For very complex shapes, sometimes we need to accept imperfect cuts
+        print(f"    Warning: Using fallback strategy for complex shape with {len(sorted_points)} intersection points")
+
+        for i in range(len(sorted_points) - 1):
+            p1, p2 = sorted_points[i], sorted_points[i + 1]
+            test_line = LineString([p1, p2])
+            midpoint = test_line.interpolate(0.5, normalized=True)
+
+            # Minimal validation - just check midpoint is roughly inside
+            if piece.contains(midpoint) or piece.boundary.contains(midpoint):
+                from shapely.ops import split as shapely_split
+                try:
+                    result = shapely_split(piece, test_line)
+                    if len(result.geoms) >= 2:  # Accept even if not exactly 2 pieces
+                        return (p1, p2)
+                except:
+                    continue
 
         # Fallback: if no valid pair found, return None
         return None
+
+    def _is_valid_cut_pair(self, p1: Point, p2: Point, piece: Polygon, original_line: LineString) -> bool:
+        """Check if a pair of points forms a valid cut for the piece."""
+        test_line = LineString([p1, p2])
+
+        # Strategy 1: Check if midpoint is inside the piece (most important)
+        midpoint = test_line.interpolate(0.5, normalized=True)
+        if not (piece.contains(midpoint) or piece.boundary.contains(midpoint)):
+            return False
+
+        # Strategy 2: Verify this cut would split into exactly 2 pieces
+        from shapely.ops import split as shapely_split
+        try:
+            result = shapely_split(piece, test_line)
+            if len(result.geoms) != 2:
+                return False
+        except Exception:
+            # If splitting fails, this is likely not a valid cut
+            return False
+
+        # Strategy 3: Additional validation - check if the cut line is reasonable
+        # The cut should not be too long compared to the piece size
+        cut_length = p1.distance(p2)
+        piece_width = piece.bounds[2] - piece.bounds[0]
+        if cut_length > piece_width * 1.5:  # Too long, likely invalid
+            return False
+
+        return True
+
+    def _is_valid_cut_pair_conservative(self, p1: Point, p2: Point, piece: Polygon, original_line: LineString) -> bool:
+        """Conservative validation that prioritizes simple, clean cuts for complex shapes."""
+        test_line = LineString([p1, p2])
+
+        # Strategy 1: Check if midpoint is inside the piece (most important)
+        midpoint = test_line.interpolate(0.5, normalized=True)
+        if not (piece.contains(midpoint) or piece.boundary.contains(midpoint)):
+            return False
+
+        # Strategy 2: Verify this cut would split into exactly 2 pieces
+        from shapely.ops import split as shapely_split
+        try:
+            result = shapely_split(piece, test_line)
+            if len(result.geoms) != 2:
+                return False
+        except Exception:
+            # If splitting fails, this is likely not a valid cut
+            return False
+
+        # Strategy 3: Conservative size validation - avoid very small pieces
+        piece1, piece2 = result.geoms
+        min_area = min(piece1.area, piece2.area)
+        total_area = piece.area
+
+        # Each piece should be at least 10% of total area (more conservative than before)
+        if min_area < total_area * 0.1:
+            return False
+
+        # Strategy 4: Conservative aspect ratio check - avoid very elongated pieces
+        for geom in result.geoms:
+            if geom.area > 0:
+                bounds = geom.bounds
+                width = bounds[2] - bounds[0]
+                height = bounds[3] - bounds[1]
+                aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else float('inf')
+
+                # Be more conservative - reject very elongated pieces
+                if aspect_ratio > 8:  # More conservative than before
+                    return False
+
+        # Strategy 5: Check for clean cuts - avoid cuts that intersect boundary multiple times
+        # This is especially important for Hilbert-like curves
+        extended_test = test_line.buffer(0.05)  # Smaller buffer for cleaner cuts
+        boundary_intersections = extended_test.intersection(piece.boundary)
+
+        if hasattr(boundary_intersections, 'geoms'):
+            intersection_count = len(boundary_intersections.geoms)
+        else:
+            intersection_count = 1 if not boundary_intersections.is_empty else 0
+
+        # Reject cuts that intersect boundary too many times (indicates complex intersections)
+        if intersection_count > 2:
+            return False
+
+        return True
+
+    def _find_cuts_for_complex_shape(self, line: LineString, piece: Polygon) -> tuple[Point, Point] | None:
+        """Specialized method for complex concave shapes like Hilbert curves."""
+        intersection = line.intersection(piece.boundary)
+
+        # For very complex shapes, use a more adaptive approach
+        if intersection.is_empty:
+            return None
+
+        # Collect intersection points
+        points = []
+        if intersection.geom_type == "Point":
+            points = [intersection]
+        elif intersection.geom_type == "MultiPoint":
+            points = list(intersection.geoms)
+        elif intersection.geom_type == "LineString":
+            coords = list(intersection.coords)
+            points = [Point(coords[0]), Point(coords[-1])]
+        elif intersection.geom_type == "GeometryCollection":
+            for geom in intersection.geoms:
+                if geom.geom_type == "Point":
+                    points.append(geom)
+                elif geom.geom_type == "LineString":
+                    coords = list(geom.coords)
+                    points.extend([Point(coords[0]), Point(coords[-1])])
+
+        # Remove duplicates
+        unique_points = []
+        tolerance = 1e-6
+        for p in points:
+            is_duplicate = False
+            for q in unique_points:
+                if p.distance(q) < tolerance:
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
+                unique_points.append(p)
+
+        if len(unique_points) < 2:
+            return None
+
+        # For complex shapes, try a different strategy:
+        # Instead of trying all pairs, use a more intelligent approach
+
+        # Strategy 1: Try to find cuts that are roughly perpendicular to the piece's orientation
+        # Calculate the piece's bounding box orientation
+        bounds = piece.bounds
+        width = bounds[2] - bounds[0]
+        height = bounds[3] - bounds[1]
+
+        # If the piece is wider than tall, prefer horizontal-ish cuts
+        if width > height * 1.2:
+            # Try horizontal cuts first (angles around 0° and 180°)
+            horizontal_angles = [0, 180, 45, 135, 90, 270]
+            for angle in horizontal_angles:
+                test_line = self.find_line(0.5, piece, angle)  # Use center position
+                result = self.find_cuts(test_line, piece)
+                if result:
+                    return result
+        else:
+            # Try vertical cuts first (angles around 90° and 270°)
+            vertical_angles = [90, 270, 45, 135, 0, 180]
+            for angle in vertical_angles:
+                test_line = self.find_line(0.5, piece, angle)
+                result = self.find_cuts(test_line, piece)
+                if result:
+                    return result
+
+        # Strategy 2: If orientation-based approach fails, fall back to standard method
+        return self.find_cuts(line, piece)
+
+    def _is_complex_shape(self, piece: Polygon) -> bool:
+        """Determine if a piece is a complex shape that needs special handling."""
+        # Simple heuristics to detect complex vs simple shapes
+
+        # 1. Check the number of vertices - complex shapes tend to have more vertices
+        if hasattr(piece, 'exterior') and piece.exterior:
+            num_vertices = len(piece.exterior.coords) - 1  # -1 because first and last are the same
+            if num_vertices > 20:  # Arbitrary threshold for "complex"
+                return True
+
+        # 2. Check aspect ratio - very elongated shapes might be complex
+        bounds = piece.bounds
+        width = bounds[2] - bounds[0]
+        height = bounds[3] - bounds[1]
+        aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else float('inf')
+
+        if aspect_ratio > 5:  # Very elongated
+            return True
+
+        # 3. Check if the shape has many "indentations" (concave parts)
+        # This is harder to detect, but we can check the boundary complexity
+        if hasattr(piece, 'boundary') and piece.boundary:
+            boundary_length = piece.boundary.length
+            area = piece.area
+
+            # Complex shapes tend to have higher perimeter-to-area ratio
+            if area > 0:
+                complexity_ratio = boundary_length / area
+                if complexity_ratio > 2.0:  # Arbitrary threshold
+                    return True
+
+        # 4. Check if the shape is very small compared to its bounding box (irregular shape)
+        if area > 0:
+            bbox_area = width * height
+            fill_ratio = area / bbox_area
+            if fill_ratio < 0.3:  # Very sparse/irregular shape
+                return True
+
+        return False
+
+    def _is_valid_cut_pair_robust(self, p1: Point, p2: Point, piece: Polygon, original_line: LineString) -> bool:
+        """Robust validation combining multiple strategies for complex concave shapes."""
+        test_line = LineString([p1, p2])
+
+        # Strategy 1: Midpoint validation (essential)
+        midpoint = test_line.interpolate(0.5, normalized=True)
+        if not (piece.contains(midpoint) or piece.boundary.contains(midpoint)):
+            return False
+
+        # Strategy 2: Split validation (essential)
+        from shapely.ops import split as shapely_split
+        try:
+            result = shapely_split(piece, test_line)
+            if len(result.geoms) != 2:
+                return False
+        except Exception:
+            return False
+
+        # Strategy 3: Size validation (prevent tiny fragments)
+        piece1, piece2 = result.geoms
+        min_area = min(piece1.area, piece2.area)
+        total_area = piece.area
+
+        if min_area < total_area * 0.05:  # More lenient for complex shapes
+            return False
+
+        # Strategy 4: Aspect ratio validation (prevent very elongated pieces)
+        for geom in result.geoms:
+            if geom.area > 0:
+                bounds = geom.bounds
+                width = bounds[2] - bounds[0]
+                height = bounds[3] - bounds[1]
+                aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else float('inf')
+
+                if aspect_ratio > 12:  # More lenient for complex shapes
+                    return False
+
+        # Strategy 5: Boundary intersection analysis (for Hilbert-like curves)
+        # Check if cut intersects boundary cleanly
+        extended_test = test_line.buffer(0.02)  # Very small buffer
+        boundary_intersections = extended_test.intersection(piece.boundary)
+
+        if hasattr(boundary_intersections, 'geoms'):
+            intersection_count = len(boundary_intersections.geoms)
+            # For complex shapes, allow up to 4 intersection points if they're close
+            if intersection_count > 4:
+                return False
+        else:
+            intersection_count = 1 if not boundary_intersections.is_empty else 0
+
+        # Strategy 6: Cut length validation (avoid extremely long cuts)
+        cut_length = p1.distance(p2)
+        piece_width = piece.bounds[2] - piece.bounds[0]
+        if cut_length > piece_width * 2.0:  # Allow longer cuts for complex shapes
+            return False
+
+        return True
+
+    def _is_valid_cut_pair_enhanced(self, p1: Point, p2: Point, piece: Polygon, original_line: LineString) -> bool:
+        """Enhanced validation for complex concave shapes like Hilbert curves."""
+        test_line = LineString([p1, p2])
+
+        # Strategy 1: Check if midpoint is inside the piece (most important)
+        midpoint = test_line.interpolate(0.5, normalized=True)
+        if not (piece.contains(midpoint) or piece.boundary.contains(midpoint)):
+            return False
+
+        # Strategy 2: Verify this cut would split into exactly 2 pieces
+        from shapely.ops import split as shapely_split
+        try:
+            result = shapely_split(piece, test_line)
+            if len(result.geoms) != 2:
+                return False
+        except Exception:
+            # If splitting fails, this is likely not a valid cut
+            return False
+
+        # Strategy 3: Enhanced validation for complex shapes
+        # Check that both resulting pieces have reasonable areas (not tiny fragments)
+        piece1, piece2 = result.geoms
+        min_area = min(piece1.area, piece2.area)
+        total_area = piece.area
+
+        # Each piece should be at least 5% of total area (avoid tiny fragments)
+        if min_area < total_area * 0.05:
+            return False
+
+        # Strategy 4: Check that the cut line doesn't create pieces that are too elongated
+        # (elongated pieces are harder to cut fairly)
+        for geom in result.geoms:
+            if geom.area > 0:
+                bounds = geom.bounds
+                width = bounds[2] - bounds[0]
+                height = bounds[3] - bounds[1]
+                aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else float('inf')
+
+                # If aspect ratio is too extreme, this might not be a good cut
+                if aspect_ratio > 10:  # Very elongated piece
+                    return False
+
+        # Strategy 5: For Hilbert-like curves, prefer cuts that don't create too many "branches"
+        # Check if the cut intersects the boundary only at the endpoints (clean cut)
+        extended_test = test_line.buffer(0.1)  # Small buffer to catch nearby intersections
+        boundary_intersections = extended_test.intersection(piece.boundary)
+
+        # Count distinct intersection regions (should be minimal for clean cuts)
+        if hasattr(boundary_intersections, 'geoms'):
+            intersection_count = len(boundary_intersections.geoms)
+        else:
+            intersection_count = 1 if not boundary_intersections.is_empty else 0
+
+        # Too many intersection regions suggest a messy cut
+        if intersection_count > 3:
+            return False
+
+        return True
 
     def calculate_piece_area(self, piece: Polygon, position: float, angle: float):
         """Determines the area of the pieces we cut.
@@ -423,7 +805,7 @@ class Player10(Player):
             batches = [attempts_to_try[i:i + batch_size] for i in range(0, len(attempts_to_try), batch_size)]
 
             # Use ProcessPoolExecutor for concurrent processing
-            with ProcessPoolExecutor(max_workers=max(1,self.num_of_processes // 4)) as executor:
+            with ProcessPoolExecutor(max_workers=self.num_of_processes) as executor:
                 # Submit all batches
                 future_to_batch = {
                     executor.submit(self._process_batch, batch, cutting_piece, cutting_num_children, target_area, target_ratio): batch
@@ -557,7 +939,7 @@ class Player10(Player):
                 batches = [phase3_attempts_to_try[i:i + batch_size] for i in range(0, len(phase3_attempts_to_try), batch_size)]
 
                 # Use ProcessPoolExecutor for concurrent processing
-                with ProcessPoolExecutor(max_workers=max(1,self.num_of_processes // 4)) as executor:
+                with ProcessPoolExecutor(max_workers=self.num_of_processes) as executor:
                     # Submit all batches
                     future_to_batch = {
                         executor.submit(self._process_batch, batch, cutting_piece, cutting_num_children, target_area, target_ratio): batch
