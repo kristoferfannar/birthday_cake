@@ -533,13 +533,13 @@ class Player10(Player):
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Main cutting logic - greedy approach with random (ratio, angle) pairs"""
-        # print(f"__________Cutting for {self.children} children_______")
+        print(f"__________Cutting for {self.children} children_______")
 
         target_area = self.cake.get_area() / self.children
         target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
         print(f"TARGET AREA: {target_area:.2f} cm²")
         print(f"TARGET CRUST RATIO: {target_ratio:.3f}")
-        print("Strategy: Greedy cutting with random ratio+angle exploration\n")
+        # print(f"Strategy: Greedy cutting with random ratio+angle exploration\n")
 
         return self._greedy_ratio_angle_cutting(target_area, target_ratio)
 
@@ -587,14 +587,18 @@ class Player10(Player):
             # Remove the piece from queue
             pieces_queue.pop(cutting_index)
 
-            # print(f"\n=== Cut {cut_number + 1}/{self.children - 1} ===")
-            # print(f"Dividing piece for {cutting_num_children} children (area: {cutting_piece.area:.2f})")
+            print(f"\n=== Cut {cut_number + 1}/{self.children - 1} ===")
+            print(
+                f"Dividing piece for {cutting_num_children} children (area: {cutting_piece.area:.2f})"
+            )
 
             # Try different split ratios: split n children into (k, n-k)
             # where k ranges from 1 to floor(n/2) for balanced divide-and-conquer
             min_split = 1
             max_split = max(1, cutting_num_children // 2)
-            # print(f"Exploring split ratios: 1/{cutting_num_children} to {max_split}/{cutting_num_children}")
+            print(
+                f"Exploring split ratios: 1/{cutting_num_children} to {max_split}/{cutting_num_children}"
+            )
 
             # Two-phase strategy:
             # Phase 1: Try all split ratios with cardinal angles + random sampling to find best ratio
@@ -695,8 +699,12 @@ class Player10(Player):
                 )
                 phase2_attempts = num_attempts - phase1_attempts
 
-                # print(f"  Phase 1 complete. Best split ratio: {best_ratio_from_phase1}/{cutting_num_children}")
-                # print(f"  Phase 2: Trying {phase2_attempts} more angles with best ratio...")
+                print(
+                    f"  Phase 1 complete. Best split ratio: {best_ratio_from_phase1}/{cutting_num_children}"
+                )
+                print(
+                    f"  Phase 2: Trying {phase2_attempts} more angles with best ratio..."
+                )
 
                 remaining_children_phase2 = (
                     cutting_num_children - best_ratio_from_phase1
@@ -790,32 +798,44 @@ class Player10(Player):
             pieces_queue.append((large_piece, remaining_children))
 
             # Print info
-            # print(f"  Best cut (tried {valid_attempts} valid attempts)")
-            # print(f"  Split ratio: {split_children}/{cutting_num_children} and {remaining_children}/{cutting_num_children}, angle={used_angle:.1f}°")
-            # print(f"  Piece 1 ({split_children} children): size={small_piece.area:.2f} (target={split_children*target_area:.2f}), crust_ratio={ratio1:.3f}")
-            # print(f"  Piece 2 ({remaining_children} children): size={large_piece.area:.2f} (target={remaining_children*target_area:.2f}), crust_ratio={ratio2:.3f}")
+            print(f"  Best cut (tried {valid_attempts} valid attempts)")
+            print(
+                f"  Split ratio: {split_children}/{cutting_num_children} and {remaining_children}/{cutting_num_children}, angle={used_angle:.1f}°"
+            )
+            print(
+                f"  Piece 1 ({split_children} children): size={small_piece.area:.2f} (target={split_children * target_area:.2f}), crust_ratio={ratio1:.3f}"
+            )
+            print(
+                f"  Piece 2 ({remaining_children} children): size={large_piece.area:.2f} (target={remaining_children * target_area:.2f}), crust_ratio={ratio2:.3f}"
+            )
 
             # Show current queue status
-            # total_in_queue = sum(nc for _, nc in pieces_queue)
-            # print(f"  Queue: {len(pieces_queue)} pieces for {total_in_queue} total children")
+            total_in_queue = sum(nc for _, nc in pieces_queue)
+            print(
+                f"  Queue: {len(pieces_queue)} pieces for {total_in_queue} total children"
+            )
 
         # Final summary
-        # print(f"\n{'='*50}")
-        # print(f"FINAL RESULT: {len(all_cuts)}/{self.children-1} cuts completed")
+        print(f"\n{'=' * 50}")
+        print(f"FINAL RESULT: {len(all_cuts)}/{self.children - 1} cuts completed")
 
-        # pieces = cake_copy.get_pieces()
-        # areas = [p.area for p in pieces]
-        # ratios = cake_copy.get_piece_ratios()
+        pieces = cake_copy.get_pieces()
+        areas = [p.area for p in pieces]
+        ratios = cake_copy.get_piece_ratios()
 
-        # print(f"\nPiece areas: {[f'{a:.2f}' for a in sorted(areas)]}")
-        # print(f"  Min: {min(areas):.2f}, Max: {max(areas):.2f}, Span: {max(areas) - min(areas):.2f}")
+        print(f"\nPiece areas: {[f'{a:.2f}' for a in sorted(areas)]}")
+        print(
+            f"  Min: {min(areas):.2f}, Max: {max(areas):.2f}, Span: {max(areas) - min(areas):.2f}"
+        )
 
-        # print(f"\nCrust ratios: {[f'{r:.3f}' for r in ratios]}")
-        # if len(ratios) > 1:
-        # ratio_variance = stdev(ratios)
-        # print(f"  Variance: {ratio_variance:.4f}")
-        # print(f"  Min: {min(ratios):.3f}, Max: {max(ratios):.3f}, Span: {max(ratios) - min(ratios):.3f}")
-        # print(f"{'='*50}\n")
+        print(f"\nCrust ratios: {[f'{r:.3f}' for r in ratios]}")
+        if len(ratios) > 1:
+            ratio_variance = stdev(ratios)
+            print(f"  Variance: {ratio_variance:.4f}")
+            print(
+                f"  Min: {min(ratios):.3f}, Max: {max(ratios):.3f}, Span: {max(ratios) - min(ratios):.3f}"
+            )
+        print(f"{'=' * 50}\n")
 
         return all_cuts
 
@@ -828,7 +848,7 @@ class Player10(Player):
         cake_copy = self.cake.copy()
 
         for cut_idx in range(self.children - 1):
-            print(f"Cut {cut_idx + 1}/{self.children - 1}")
+            print(f"=== Cut {cut_idx + 1}/{self.children - 1} ===")
 
             current_pieces = cake_copy.get_pieces()
             cutting_piece = max(current_pieces, key=lambda pc: pc.area)
@@ -839,7 +859,7 @@ class Player10(Player):
 
             best_cut = None
             best_score = float("inf")
-            # best_angle = None
+            best_angle = None
 
             num_attempts = (
                 self.num_angle_attempts * 2 if is_last_cut else self.num_angle_attempts
@@ -865,12 +885,12 @@ class Player10(Player):
                     if score < best_score:
                         best_score = score
                         best_cut = (from_p, to_p)
-                        # best_angle = angle
+                        best_angle = angle
                         best_ratio = piece_ratio
                         best_size = piece_area
 
             if best_cut is None:
-                # print(f"  Failed: No valid cut found")
+                print("  Failed: No valid cut found")
                 continue
 
             from_p, to_p = best_cut
@@ -878,12 +898,16 @@ class Player10(Player):
                 cake_copy.cut(from_p, to_p)
                 cuts.append((from_p, to_p))
 
-                # areas = [p.area for p in cake_copy.get_pieces()]
+                areas = [p.area for p in cake_copy.get_pieces()]
                 size_error = abs(best_size - target_area)
                 ratio_error = abs(best_ratio - target_ratio)
-                # print(f"  Best angle: {best_angle:.1f}° (tried {valid_attempts} valid angles)")
-                # print(f"  Piece: size={best_size:.2f} (target={target_area:.2f}, err={size_error:.2f}), ratio={best_ratio:.3f} (target={target_ratio:.3f}, err={ratio_error:.3f})")
-                # print(f"  Current areas: {[f'{a:.2f}' for a in sorted(areas)]}\n")
+                print(
+                    f"  Best angle: {best_angle:.1f}° (tried {valid_attempts} valid angles)"
+                )
+                print(
+                    f"  Piece: size={best_size:.2f} (target={target_area:.2f}, err={size_error:.2f}), ratio={best_ratio:.3f} (target={target_ratio:.3f}, err={ratio_error:.3f})"
+                )
+                print(f"  Current areas: {[f'{a:.2f}' for a in sorted(areas)]}\n")
 
             except Exception as e:
                 print(f"  Error applying cut: {e}")

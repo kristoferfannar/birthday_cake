@@ -13,6 +13,10 @@ def copy_geom(g):
     return wkb.loads(wkb.dumps(g))
 
 
+def copy_geom(g):
+    return wkb.loads(wkb.dumps(g))
+
+
 class Player7(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
@@ -111,7 +115,7 @@ class Player7(Player):
                     py = y1 + t * dy
                     raw_points.append((px, py))
                     k += 1
-            else:
+            elif length > 1:
                 # Add midpoint
                 mx = x1 + 0.5 * dx
                 my = y1 + 0.5 * dy
