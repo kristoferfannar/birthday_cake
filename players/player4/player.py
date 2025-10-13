@@ -41,6 +41,31 @@ class Player4(Player):
 
         self.profiler = cProfile.Profile()
 
+        # When we accept a candidate final piece, if we search strictly for pieces larger than the requirement, we will fail to find a solution since the remaining area is smaller than required. To avoid this, we introduce a small tolerance to the minimum area required for each final piece. Practically, the minimum final piece size that we can accept for a candidate solution is related to the total number of children:
+        # Let the target final size (determined by the number of children) be A, and our tolerance be e. Since our total size span tolerance is 0.5, if each candidate final piece other than the last one has area A - e, the last piece will have area A_n = A + (n - 1)e.
+        # This means that the maximum size span, when all pieces are as small as possible except the last one, is:
+        # size_span = A_n - (A - e) = (A + (n - 1)e) - (A - e) = ne
+        # The practical goal here is to keep the size span less than 0.5, so we want ne < 0.5, or e < 0.5/n.
+        self.final_piece_target_area = cake.exterior_shape.area / float(children)
+        self.final_piece_size_epsilon = 0.5 / float(children)
+        self.final_piece_min_area = (
+            self.final_piece_target_area - self.final_piece_size_epsilon
+        )
+        self.final_piece_max_area = (
+            self.final_piece_target_area + self.final_piece_size_epsilon
+        )
+        print(
+            f"Player 4: Final piece target area: {self.final_piece_target_area}, epsilon min area: {self.final_piece_min_area}."
+        )
+
+        # Similarly, ratio target is 5%, meaning we can accept pieces with ratio +- 2.5%.
+        self.final_piece_target_ratio = cake.get_piece_ratio(cake.exterior_shape)
+        self.final_piece_min_ratio = self.final_piece_target_ratio - 0.025
+        self.final_piece_max_ratio = self.final_piece_target_ratio + 0.025
+        print(
+            f"Player 4: Final piece target ratio: {self.final_piece_target_ratio}, min ratio: {self.final_piece_min_ratio}, max ratio: {self.final_piece_max_ratio}."
+        )
+
     def get_cuts(self) -> list[tuple[Point, Point]]:
         # If cake is a preset cake, use prepared cuts
         if any(

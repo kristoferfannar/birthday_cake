@@ -143,7 +143,7 @@ class CrustOptimizingPlayer(Player):
                     if best_line[0] > cake_precision:
                         best_line = [cake_precision, p1, p2, crust_precision]
 
-                    if cake_precision < 0.001:
+                    if cake_precision < 0.0005:
                         best_line_list.append((cake_precision, p1, p2, crust_precision))
 
             # print(best_line)
