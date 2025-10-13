@@ -17,7 +17,6 @@ class Player5(Player):
     REFINE_ITERS = 50
     REFINE_EPS = 1e-9
 
-    # Harder search caps
     HARD_NUM_DIRECTIONS = 96
     HARD_OFFSETS_COARSE = 96
     HARD_OFFSETS_LOCAL = 48
@@ -27,20 +26,16 @@ class Player5(Player):
         super().__init__(children, cake, cake_path)
         print(f"I am {self}")
 
-        # Game tolerances
-        self.same_size_tol = getattr(c, "SAME_SIZE_TOLERANCE", 0.5)  # final span limit
+        self.same_size_tol = getattr(c, "SAME_SIZE_TOLERANCE", 0.5)
         self.num_tol = getattr(c, "NUM_TOL", 2e-3)
 
-        # Per-piece band
-        self.per_piece_band = max(1e-6, 0.5 * self.same_size_tol - 1e-3)
-
-        # final acceptance still uses the strict band above.
+        self.band_star = max(1e-6, 0.5 * max(0.0, self.same_size_tol - self.num_tol))
+        self.per_piece_band = max(1e-6, 0.9 * self.band_star)
         self.area_tol = max(1e-6, self.per_piece_band * 0.8)
 
         self.min_seg_len = 1e-5
         self.time_budget_sec = 55.0
 
-        # Precompute inner cake (>=1 cm from perimeter) and target crust proportion (P*)
         try:
             outer = self.cake.exterior_shape
             inner = outer.buffer(-1.0)
@@ -71,7 +66,6 @@ class Player5(Player):
             raise PlayerException("Invalid number of children")
         A_star = total_area / self.children
 
-        # Running deviations (inform the dynamic target "desired")
         S = 0.0
         S_prop = 0.0
 
@@ -79,31 +73,31 @@ class Player5(Player):
             if self._time_exceeded(start_time):
                 return moves
 
-            # Largest remaining piece
             piece = max(temp_cake.get_pieces(), key=lambda p: p.area)
             piece = self._clean(piece)
 
             r = self.children - i
-            # Dynamic desired area for this cut (keeps feasibility)
             desired = A_star - (S / r)
+            desired = max(
+                A_star - self.band_star, min(A_star + self.band_star, desired)
+            )
             desired_prop = self.P_star - (S_prop / r)
 
-            # Numerical clamps
             remaining = r
             base_eps = max(1e-6, 1e-4 * piece.area)
             tight_eps = max(2e-6, 8e-4 * piece.area)
             eps = tight_eps if remaining <= 3 else base_eps
             desired = max(eps, min(desired, piece.area - eps))
 
-            # Search tolerance for hitting desired area
             if remaining <= 3:
                 tol = max(1e-4, self.area_tol * 0.6)
+                band_local = max(1e-6, 0.8 * self.band_star)
             elif remaining == 4:
                 tol = max(2e-4, self.area_tol * 0.8)
+                band_local = max(1e-6, 0.9 * self.band_star)
             else:
                 tol = self.area_tol
-
-            band = self.per_piece_band  # strict acceptance band around desired
+                band_local = self.per_piece_band
 
             cand = self._best_segment_for_target_global(
                 temp_cake,
@@ -112,12 +106,11 @@ class Player5(Player):
                 tol,
                 desired_prop,
                 A_star,
-                band,
+                band_local,
                 start_time,
                 remaining,
             )
             if cand is None:
-                # escalate to hard mode search
                 cand = self._best_segment_for_target_global(
                     temp_cake,
                     piece,
@@ -125,38 +118,31 @@ class Player5(Player):
                     tol,
                     desired_prop,
                     A_star,
-                    band,
+                    band_local,
                     start_time,
                     remaining,
                     hard_mode=True,
                 )
 
             if cand is None:
-                raise PlayerException(
-                    f"Could not find a band-compliant cut at step {i + 1} "
-                    f"(band ±{band:.4f} around desired={desired:.4f})."
-                )
+                cand = self._best_nearby_to_astar(temp_cake, piece, A_star, start_time)
+
+            if cand is None:
+                return moves
 
             a, b, produced_A, produced_prop = cand
 
-            # Commit the exact endpoints used by the preview
+            if remaining == 2:
+                pol = self._polish_last_cut(temp_cake, a, b, piece, A_star, start_time)
+                if pol is not None:
+                    a, b, produced_A = pol
+
             moves.append((a, b))
             temp_cake.cut(a, b)
 
-            # Update residuals from produced piece
             S += produced_A - A_star
             if produced_prop is not None:
                 S_prop += produced_prop - self.P_star
-
-        # Final global span check
-        areas = [p.area for p in temp_cake.get_pieces()]
-        if not areas:
-            raise PlayerException("No pieces after cutting?")
-        spread = max(areas) - min(areas)
-        if spread > (self.same_size_tol + self.num_tol):
-            raise PlayerException(
-                f"Size tolerance breached: spread={spread:.4f} > {self.same_size_tol} (+{self.num_tol} tol)"
-            )
 
         return moves
 
@@ -164,7 +150,7 @@ class Player5(Player):
         self,
         temp_cake_obj: Cake,
         polygon: Polygon,
-        target_area: float,  # this is *desired* in caller
+        target_area: float,
         area_tol: float,
         desired_prop: float,
         A_star: float,
@@ -173,19 +159,10 @@ class Player5(Player):
         remaining: int,
         hard_mode: bool = False,
     ) -> Optional[Tuple[Point, Point, float, Optional[float]]]:
-        """
-        Search for a segment that, when applied to the REAL cake state (global),
-        produces a piece with:
-          1) |A - target_area| minimized (for search),
-          2) HARD ACCEPT: |A - target_area| ≤ band   <-- band is around desired, not A*.
-        Among band-compliant candidates, pick the one with crust proportion
-        closest to desired_prop (if inner_cake available).
-        """
         poly = self._clean(polygon)
         if poly.is_empty or poly.area <= 0:
             return None
 
-        # choose density
         if hard_mode:
             ndirs = self.HARD_NUM_DIRECTIONS
             coarse = self.HARD_OFFSETS_COARSE
@@ -197,9 +174,8 @@ class Player5(Player):
             local = self._local_count(remaining)
             refine_iters = self.REFINE_ITERS
 
-        best_in_band: Optional[Tuple[Point, Point, float, float]] = None  # (a,b,A,prop)
+        best_in_band: Optional[Tuple[Point, Point, float, float]] = None
         best_prop_delta = float("inf")
-        best_err = float("inf")
 
         for seg in self._vertex_pair_chords(poly):
             if self._time_exceeded(start_time):
@@ -211,20 +187,15 @@ class Player5(Player):
                 continue
             a, b, A, err_desired, prop = cand
 
-            if abs(A - target_area) <= band:  # strict band around desired
+            if (abs(A - target_area) <= band) and (abs(A - A_star) <= self.band_star):
                 pv = 0.0 if prop is None else prop
                 delta = abs(pv - desired_prop)
                 if (best_in_band is None) or (delta < best_prop_delta):
                     best_in_band = (a, b, A, pv)
-                    best_prop_delta = delta
-            else:
-                if err_desired < best_err:
-                    best_err = err_desired
 
         if best_in_band is not None:
             return (best_in_band[0], best_in_band[1], best_in_band[2], best_in_band[3])
 
-        # 2) Directional sweeps + refinement (global scored)
         cand2 = self._search_direction_adaptive_global(
             temp_cake_obj,
             poly,
@@ -249,7 +220,7 @@ class Player5(Player):
         self,
         cake: Cake,
         poly: Polygon,
-        target_area: float,  # desired
+        target_area: float,
         area_tol: float,
         desired_prop: float,
         A_star: float,
@@ -261,7 +232,6 @@ class Player5(Player):
         coarse_count: int,
         ndirs: int,
     ) -> Optional[Tuple[Point, Point, float, Optional[float]]]:
-        # Build directions
         dirs: List[Tuple[float, float]] = []
         for k in range(ndirs):
             th = (math.pi * k) / ndirs
@@ -294,9 +264,7 @@ class Player5(Player):
             prev_s = None
             prev_signed = None
             best_s = None
-            best_err_dir = float("inf")
 
-            # Coarse scan
             for j in range(coarse_count):
                 if self._time_exceeded(start_time):
                     break
@@ -312,17 +280,15 @@ class Player5(Player):
                     continue
                 a, b, A, err_desired, prop = cand
 
-                if abs(A - target_area) <= band:  # band around desired
+                if (abs(A - target_area) <= band) and (
+                    abs(A - A_star) <= self.band_star
+                ):
                     pv = 0.0 if prop is None else prop
                     delta = abs(pv - desired_prop)
                     if (best_band_tuple is None) or (delta < best_prop_delta):
                         best_band_tuple = (a, b, A, pv)
                         best_prop_delta = delta
                     best_s = s
-                else:
-                    if err_desired < best_err_dir:
-                        best_err_dir = err_desired
-                        best_s = s
 
                 signed = A - target_area
                 if prev_s is not None and prev_signed is not None:
@@ -348,12 +314,15 @@ class Player5(Player):
                             start_time,
                             iters=refine_iters,
                         )
-                        if ref is not None and abs(ref[2] - target_area) <= band:
+                        if (
+                            ref is not None
+                            and abs(ref[2] - target_area) <= band
+                            and abs(ref[2] - A_star) <= self.band_star
+                        ):
                             return ref
                 prev_s = s
                 prev_signed = signed
 
-            # Local polish around best_s if needed
             if best_band_tuple is None and best_s is not None:
                 half_window = max(span * self.LOCAL_WINDOW_FRAC, span * 1e-3)
                 s_lo = best_s - half_window
@@ -372,7 +341,9 @@ class Player5(Player):
                     if cand is None:
                         continue
                     a, b, A, err_desired, prop = cand
-                    if abs(A - target_area) <= band:
+                    if (abs(A - target_area) <= band) and (
+                        abs(A - A_star) <= self.band_star
+                    ):
                         pv = 0.0 if prop is None else prop
                         delta = abs(pv - desired_prop)
                         if (best_band_tuple is None) or (delta < best_prop_delta):
@@ -392,7 +363,7 @@ class Player5(Player):
         L: float,
         s_lo: float,
         s_hi: float,
-        target_area: float,  # desired
+        target_area: float,
         area_tol: float,
         A_star: float,
         band: float,
@@ -425,7 +396,7 @@ class Player5(Player):
                 hi = mid
                 continue
             a, b, A, err_desired, prop = cand
-            if abs(A - target_area) <= band:  # band around desired
+            if (abs(A - target_area) <= band) and (abs(A - A_star) <= self.band_star):
                 pv = 0.0 if prop is None else prop
                 return (a, b, A, pv)
             if err_desired < best_err:
@@ -470,8 +441,9 @@ class Player5(Player):
             if err_desired < best_err:
                 best_err = err_desired
                 best = (a, b, A, err_desired, prop)
-                # quick exit if already within band around *target_area* (desired)
-                if abs(A - target_area) <= band:
+                if (abs(A - target_area) <= band) and (
+                    abs(A - A_star) <= self.band_star
+                ):
                     break
         return best
 
@@ -484,18 +456,11 @@ class Player5(Player):
         A_star: float,
         band: float,
     ) -> Optional[Tuple[Point, Point, float, float, Optional[float]]]:
-        """
-        Validate & snap segment, forbid multi-piece touching, then PREVIEW on a clone:
-          - produced area A (global truth),
-          - err_desired = |A - target_area| (for search),
-        Returns (a,b,A,err_desired,prop?). Caller enforces band compliance.
-        """
         if not isinstance(seg, LS) or seg.length < self.min_seg_len:
             return None
         (xa, ya), (xb, yb) = list(seg.coords)[0], list(seg.coords)[-1]
         a, b = Point(xa, ya), Point(xb, yb)
 
-        # Try raw; if not valid, snap to perimeter and recheck
         if not self._valid_on_current_cake(cake_obj, a, b):
             snapped = self._snap_to_cake_perimeter(cake_obj, seg)
             if snapped is None:
@@ -505,11 +470,9 @@ class Player5(Player):
                 return None
             seg = LS([a, b])
 
-        # Forbid touching other pieces (keep semantics predictable)
         if self._touches_other_pieces(cake_obj, poly, seg):
             return None
 
-        # === GLOBAL PREVIEW ===
         try:
             sim = cake_obj.copy()
             sim.cut(a, b)
@@ -527,27 +490,193 @@ class Player5(Player):
             produced = min(candidates, key=lambda p: abs(p.area - target_area))
             A = produced.area
             err_desired = abs(A - target_area)
-
-            # crust proportion (secondary)
             prop = (
                 self._prop_of(self._clean(produced))
                 if self.inner_cake is not None
                 else None
             )
-
+            if prop is not None and not math.isfinite(prop):
+                prop = None
             return (a, b, A, err_desired, prop)
         except Exception:
             return None
 
-    # =========================
-    # Search density helpers
-    # =========================
+    def _best_nearby_to_astar(
+        self, cake: Cake, poly: Polygon, A_star: float, start_time: float
+    ) -> Optional[Tuple[Point, Point, float, Optional[float]]]:
+        ndirs = 32
+        coarse = 48
+        local = 24
+
+        dirs: List[Tuple[float, float]] = []
+        for k in range(ndirs):
+            th = (math.pi * k) / ndirs
+            dirs.append((math.cos(th), math.sin(th)))
+
+        best = None
+        best_err = float("inf")
+
+        minx, miny, maxx, maxy = poly.bounds
+        cx, cy = (minx + maxx) * 0.5, (miny + maxy) * 0.5
+        diameter = max(1e-6, math.hypot(maxx - minx, maxy - miny))
+        L = diameter * 8.0
+
+        for ux, uy in dirs:
+            if self._time_exceeded(start_time):
+                break
+            ux, uy = self._unit((ux, uy))
+            nx, ny = -uy, ux
+
+            verts = list(poly.exterior.coords[:-1])
+            if not verts:
+                continue
+            dots = [(vx - cx) * nx + (vy - cy) * ny for (vx, vy) in verts]
+            s_min = min(dots) - diameter * 0.5
+            s_max = max(dots) + diameter * 0.5
+
+            for j in range(coarse):
+                if self._time_exceeded(start_time):
+                    break
+                t = j / (coarse - 1) if coarse > 1 else 0.5
+                s = s_min * (1.0 - t) + s_max * t
+                x0, y0 = cx + s * nx, cy + s * ny
+                a_inf = Point(x0 - ux * L, y0 - uy * L)
+                b_inf = Point(x0 + ux * L, y0 + uy * L)
+                cand = self._best_chord_on_line_global(
+                    cake, poly, LS([a_inf, b_inf]), A_star, A_star, 1e12
+                )
+                if cand is None:
+                    continue
+                a, b, A, _, prop = cand
+                err = abs(A - A_star)
+                if err < best_err:
+                    best = (a, b, A, prop if prop is not None else 0.0)
+                    best_err = err
+
+            if best is not None:
+                x0, y0 = cx, cy
+                a0, b0 = best[0], best[1]
+                dirx, diry = b0.x - a0.x, b0.y - a0.y
+                nrm = math.hypot(dirx, diry)
+                if nrm > 0:
+                    ux2, uy2 = dirx / nrm, diry / nrm
+                    nx2, ny2 = -uy2, ux2
+                    half_window = max(
+                        (s_max - s_min) * self.LOCAL_WINDOW_FRAC, (s_max - s_min) * 1e-3
+                    )
+                    for j in range(local):
+                        if self._time_exceeded(start_time):
+                            break
+                        tt = (j / (local - 1) - 0.5) * 2.0
+                        shift = tt * half_window
+                        a_inf = Point(
+                            a0.x + nx2 * shift - ux2 * L, a0.y + ny2 * shift - uy2 * L
+                        )
+                        b_inf = Point(
+                            b0.x + nx2 * shift + ux2 * L, b0.y + ny2 * shift + uy2 * L
+                        )
+                        cand2 = self._best_chord_on_line_global(
+                            cake, poly, LS([a_inf, b_inf]), A_star, A_star, 1e12
+                        )
+                        if cand2 is None:
+                            continue
+                        a, b, A, _, prop = cand2
+                        err = abs(A - A_star)
+                        if err < best_err:
+                            best = (a, b, A, prop if prop is not None else 0.0)
+                            best_err = err
+
+        return best
+
+    def _polish_last_cut(
+        self,
+        cake: Cake,
+        a: Point,
+        b: Point,
+        poly: Polygon,
+        A_star: float,
+        start_time: float,
+    ) -> Optional[Tuple[Point, Point, float]]:
+        try:
+            dirx, diry = b.x - a.x, b.y - a.y
+            nrm = math.hypot(dirx, diry)
+            if nrm == 0:
+                return None
+            nx, ny = -diry / nrm, dirx / nrm
+
+            minx, miny, maxx, maxy = poly.bounds
+            span = max(1e-6, math.hypot(maxx - minx, maxy - miny))
+            lo, hi = -0.15 * span, 0.15 * span
+
+            def eval_t(t: float):
+                if self._time_exceeded(start_time):
+                    return None
+                a2 = Point(a.x + nx * t, a.y + ny * t)
+                b2 = Point(b.x + nx * t, b.y + ny * t)
+                snapped = self._snap_to_cake_perimeter(cake, LS([a2, b2]))
+                if snapped is None:
+                    return None
+                a3, b3 = snapped
+                if not self._valid_on_current_cake(cake, a3, b3):
+                    return None
+                try:
+                    sim = cake.copy()
+                    sim.cut(a3, b3)
+                    cut_line = LS([a3, b3])
+                    candidates = []
+                    for p in sim.get_pieces():
+                        inter = p.intersection(cut_line)
+                        if not inter.is_empty and getattr(inter, "length", 0.0) > 1e-9:
+                            candidates.append(p)
+                    if not candidates:
+                        return None
+                    produced = min(candidates, key=lambda p_: abs(p_.area - A_star))
+                    return (a3, b3, produced.area)
+                except Exception:
+                    return None
+
+            f_lo = eval_t(lo)
+            f_hi = eval_t(hi)
+            if f_lo is None and f_hi is None:
+                return None
+
+            if f_lo is not None and abs(f_lo[2] - A_star) <= self.band_star:
+                return f_lo
+            if f_hi is not None and abs(f_hi[2] - A_star) <= self.band_star:
+                return f_hi
+
+            left, right = lo, hi
+            best = None
+            best_err = float("inf")
+            for _ in range(40):
+                if self._time_exceeded(start_time):
+                    break
+                mid = 0.5 * (left + right)
+                res = eval_t(mid)
+                if res is None:
+                    right = mid
+                    continue
+                a3, b3, A = res
+                err = abs(A - A_star)
+                if err < best_err:
+                    best = (a3, b3, A)
+                    best_err = err
+                if A > A_star:
+                    right = mid
+                else:
+                    left = mid
+                if err <= self.band_star * 0.9:
+                    break
+            return best
+        except Exception:
+            return None
+
     def _direction_count(self, poly: Polygon, remaining: int) -> int:
         nverts = len(list(poly.exterior.coords)) - 1 if poly and poly.exterior else 0
         if nverts > 120:
-            nd = max(32, self.NUM_DIRECTIONS // 2)  # fewer on very complex
+            nd = max(32, self.NUM_DIRECTIONS // 2)
         elif poly.area < 0.05 * max(self.total_area, 1e-9):
-            nd = min(64, self.NUM_DIRECTIONS + 16)  # a bit more on small
+            nd = min(64, self.NUM_DIRECTIONS + 16)
         else:
             nd = self.NUM_DIRECTIONS
         if remaining <= 3:
@@ -697,7 +826,6 @@ class Player5(Player):
                 if hasattr(inter, "length") and inter.length > 1e-12:
                     return True
 
-                # point-only intersections
                 if inter.geom_type == "Point":
                     pt = inter
                     if not is_endpoint(pt):
@@ -734,7 +862,10 @@ class Player5(Player):
             inner_overlap = p.intersection(self.inner_cake)
             inner_area = inner_overlap.area if not inner_overlap.is_empty else 0.0
             crust_area = max(0.0, p.area - inner_area)
-            return crust_area / p.area
+            v = crust_area / p.area
+            if not math.isfinite(v):
+                return 0.0
+            return v
         except Exception:
             return 0.0
 
