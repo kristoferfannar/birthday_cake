@@ -1,6 +1,7 @@
 from shapely import Point
 
 # from players.player9.Weighted_Random import WeightedRandom
+# from players.player9.crust_optimizing_crawl import CrustOptimizingPlayer
 from players.player9.crust_optimizing_player import CrustOptimizingPlayer
 
 from players.player import Player
