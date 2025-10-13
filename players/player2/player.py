@@ -8,6 +8,7 @@ from shapely.geometry import LineString, Polygon
 from players.player import Player, PlayerException
 import src.constants as c
 from src.cake import Cake, extend_line
+import time
 
 
 class Player2(Player):
@@ -47,9 +48,15 @@ class Player2(Player):
         self.area_tol = getattr(c, "PIECE_SPAN_TOL", 0.5)  # cm^2
         self.ratio_w = 0.10  # small weight on ratio to break ties (can set 0)
 
+        self.max_area_deviation = 0.25
+        print("Using Player2 v4 with two-stage scoring (area-first, ratio-second)")
+        # print(f"Target area per piece: {self.target_area:.2f} cm²")
+        # print(f"Max area deviation tolerance: {self.max_area_deviation} cm²")
+
     # ------------------ public ------------------
 
     def get_cuts(self) -> List[Tuple[Point, Point]]:
+        start_time = time.time()
         if self.children <= 1:
             return []
 
@@ -67,6 +74,15 @@ class Player2(Player):
         # snapping each cut to the current geometry
         realized = self._realize_sequential(self.cake.copy(), planned)
 
+        # Debug: check if planning was complete
+        print(
+            f"Planning phase found {len(planned)} cuts, need {self.children - 1} total"
+        )
+        if len(planned) < self.children - 1:
+            print(
+                f"PLANNING INCOMPLETE: Missing {self.children - 1 - len(planned)} cuts, falling back to greedy"
+            )
+
         # if we didn't get enough, greedily add equal-area cuts
         while len(realized) < self.children - 1:
             add = self._best_greedy_cut_for(self.cake.copy(), realized)
@@ -80,7 +96,8 @@ class Player2(Player):
                 raise PlayerException(
                     f"Player2: could not assemble {self.children - 1} cuts (got {len(realized)})."
                 )
-
+        end_time = time.time()
+        print(f"Total time: {end_time - start_time:.2f} seconds")
         return realized
 
     # ------------------ search (plan) ------------------
@@ -131,23 +148,42 @@ class Player2(Player):
                 if len(parts) != 2:
                     continue
                 P, Q = parts
-                aP, aQ = P.area, Q.area
 
                 # score each desired split (a,b)
                 for a, b in splits:
                     tP = a * self.target_area
                     tQ = b * self.target_area
-                    err = (aP - tP) ** 2 + (aQ - tQ) ** 2
-                    if self.ratio_w > 0:
-                        rP = self._ratio_v_parent(cake, P)
-                        rQ = self._ratio_v_parent(cake, Q)
-                        err += self.ratio_w * (
-                            (rP - self.avg_ratio) ** 2 + (rQ - self.avg_ratio) ** 2
-                        )
+
+                    area_deviation_P = abs(P.area - tP)
+                    area_deviation_Q = abs(Q.area - tQ)
+
+                    if (
+                        area_deviation_P > self.max_area_deviation
+                        or area_deviation_Q > self.max_area_deviation
+                    ):
+                        err = (area_deviation_P + area_deviation_Q) * 1000
+                    else:
+                        ratio_P = self._ratio_v_parent(cake, P)
+                        ratio_Q = self._ratio_v_parent(cake, Q)
+                        ratio_deviation_P = ratio_P - self.avg_ratio
+                        ratio_deviation_Q = ratio_Q - self.avg_ratio
+                        err = ratio_deviation_P**2 + ratio_deviation_Q**2
+
                     cand.append((err, (pA, pB), (P, Q), (a, b)))
 
         if not cand:
+            print(
+                f"  Search failed at depth {depth}: no valid cuts found for {pieces_needed} pieces"
+            )
             return inf, []
+
+        # Debug: check how many cuts meet area requirements
+        area_acceptable = sum(
+            1 for err, _, _, _ in cand if err < 1000
+        )  # < 1000 means no heavy penalty
+        print(
+            f"  Found {len(cand)} total cuts, {area_acceptable} meet area requirements"
+        )
 
         cand.sort(key=lambda x: x[0])
         cand = cand[: self.beam_width]
@@ -159,12 +195,12 @@ class Player2(Player):
             if cut_err >= best_score:
                 continue
 
-            # prune very poor fits
+            # prune very poor fits - use same tolerance as two-stage scoring
             tP = a * self.target_area
             tQ = b * self.target_area
             if (
-                abs(P.area - tP) > 10 * self.area_tol
-                and abs(Q.area - tQ) > 10 * self.area_tol
+                abs(P.area - tP) > self.max_area_deviation
+                or abs(Q.area - tQ) > self.max_area_deviation
             ):
                 continue
 
@@ -182,6 +218,11 @@ class Player2(Player):
                 best_score = total
                 best_seq = [(from_p, to_p)] + seqP + seqQ
 
+        # if best_seq:
+        #     print(f"  Search at depth {depth}: found solution with {len(best_seq)} cuts for {pieces_needed} pieces")
+        # else:
+        #     print(f"  Search at depth {depth}: no solution found for {pieces_needed} pieces")
+
         return best_score, best_seq
 
     # ------------------ realization (snap & apply) ------------------
@@ -191,20 +232,32 @@ class Player2(Player):
     ) -> List[Tuple[Point, Point]]:
         realized: List[Tuple[Point, Point]] = []
 
-        for p_raw, q_raw in planned:
+        for cut_idx, (p_raw, q_raw) in enumerate(planned):
             snapped = self._snap_to_some_piece(sim, p_raw, q_raw)
             if snapped is None:
-                # planned cut can’t be realized on current geometry; try greedy instead
+                # planned cut can't be realized on current geometry; try greedy instead
+                print(
+                    f"Cut {cut_idx + 1}: Planned cut failed to snap, trying greedy..."
+                )
                 g = self._best_greedy_cut_for(sim, realized)
                 if g is None:
                     # try any valid
                     g = self._any_valid_on(sim)
+                    print(
+                        f"Cut {cut_idx + 1}: Using ANY-VALID cut (planning failed badly)"
+                    )
+                else:
+                    print(f"Cut {cut_idx + 1}: Using GREEDY cut (planning failed)")
                 if g is None:
                     # give up on this slot; continue (fill later)
+                    print(
+                        f"Cut {cut_idx + 1}: Giving up on this slot; continue (fill later)"
+                    )
                     continue
                 p_use, q_use = g
             else:
                 p_use, q_use = snapped
+                print(f"Cut {cut_idx + 1}: Planned cut succeeded")
 
             realized.append((p_use, q_use))
             try:
@@ -265,14 +318,21 @@ class Player2(Player):
                 sim.cut(snapped[0], snapped[1])
 
         target_piece = max(sim.get_pieces(), key=lambda p: p.area)
-        # We aim to split remaining children roughly in half
-        # Determine remaining children from area ratio
-        remaining_area = sum(p.area for p in sim.get_pieces())
-        remaining_children = max(2, round(remaining_area / self.target_area))
-        a = remaining_children // 2
-        b = remaining_children - a
+
+        piece_children = max(1, round(target_piece.area / self.target_area))
+        a = max(1, piece_children // 2)
+        b = max(1, piece_children - a)
+
+        # Calculate target areas for the two pieces we're creating
         tP = a * self.target_area
         tQ = b * self.target_area
+
+        print(
+            f"  Greedy: piece {target_piece.area:.1f} cm² should serve {piece_children} children"
+        )
+        print(
+            f"  Greedy: splitting into {a} and {b} children, targets={tP:.1f} and {tQ:.1f} cm²"
+        )
 
         best = None
         best_err = inf
@@ -288,24 +348,63 @@ class Player2(Player):
                 if len(parts) != 2:
                     continue
                 P, Q = parts
-                err = (P.area - tP) ** 2 + (Q.area - tQ) ** 2
+
+                area_deviation_P = abs(P.area - tP)
+                area_deviation_Q = abs(Q.area - tQ)
+
+                if (
+                    area_deviation_P > self.max_area_deviation
+                    or area_deviation_Q > self.max_area_deviation
+                ):
+                    err = (area_deviation_P + area_deviation_Q) * 1000
+                else:
+                    ratio_P = self._ratio_v_parent(sim, P)
+                    ratio_Q = self._ratio_v_parent(sim, Q)
+                    ratio_deviation_P = ratio_P - self.avg_ratio
+                    ratio_deviation_Q = ratio_Q - self.avg_ratio
+                    err = ratio_deviation_P**2 + ratio_deviation_Q**2
+
                 if err < best_err:
                     best_err = err
                     best = (pA, pB)
+                    # Debug: show area deviations for best greedy cut
+                    if (
+                        area_deviation_P > self.max_area_deviation
+                        or area_deviation_Q > self.max_area_deviation
+                    ):
+                        print(
+                            f"  Greedy cut with area violations: P={P.area:.1f} (target={tP:.1f}, dev={area_deviation_P:.1f}), Q={Q.area:.1f} (target={tQ:.1f}, dev={area_deviation_Q:.1f})"
+                        )
 
         return best
 
     def _any_valid_on(self, sim: Cake) -> Optional[Tuple[Point, Point]]:
-        """Pick any valid cut on the largest current piece."""
+        """Pick any valid cut on the largest current piece, preferring area-balanced cuts."""
         piece = max(sim.get_pieces(), key=lambda p: p.area)
         pts = self._candidate_points(piece)
+
+        # Try to find a cut that's reasonably balanced
+        best_cut = None
+        best_area_balance = float("inf")
+
         for i in range(len(pts)):
             for j in range(i + 1, len(pts)):
                 a, b = pts[i], pts[j]
                 ok, _ = sim.cut_is_valid(a, b)
                 if ok:
-                    return a, b
-        return None
+                    # Test the cut to see area balance
+                    try:
+                        parts = sim.cut_piece(piece, a, b)
+                        if len(parts) == 2:
+                            P, Q = parts
+                            area_balance = abs(P.area - Q.area)
+                            if area_balance < best_area_balance:
+                                best_area_balance = area_balance
+                                best_cut = (a, b)
+                    except Exception:
+                        continue
+
+        return best_cut
 
     def _fill_with_any_valid(
         self, original: Cake, cuts: List[Tuple[Point, Point]]
@@ -357,12 +456,16 @@ class Player2(Player):
 
     def _leaf_score(self, cake: Cake) -> float:
         piece = cake.get_pieces()[0]
-        area_err = (piece.area - self.target_area) ** 2
-        if self.ratio_w <= 0:
-            return area_err
-        ratio = self._ratio_v_parent(cake, piece)
-        ratio_err = (ratio - self.avg_ratio) ** 2
-        return area_err + self.ratio_w * ratio_err
+
+        # Stage 1: Check area tolerance
+        area_deviation = abs(piece.area - self.target_area)
+        if area_deviation > self.max_area_deviation:
+            return area_deviation * 1000  # Heavy penalty for area violations
+
+        # Stage 2: If area is acceptable, score by interior ratio deviation
+        interior_ratio = self._ratio_v_parent(cake, piece)
+        ratio_deviation = interior_ratio - self.avg_ratio
+        return ratio_deviation**2
 
     def _wrap_subcake(self, parent: Cake, poly: Polygon) -> Cake:
         new = object.__new__(Cake)
