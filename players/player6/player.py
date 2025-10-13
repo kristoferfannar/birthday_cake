@@ -336,28 +336,28 @@ class Player6(Player):
         else:
             # For angled lines, we need to create a line that sweeps across the bounding box
             # Use parametric approach: start from one edge and go to the opposite edge
-            
+
             # Calculate the center point and use it as reference
             center_x = min_x + frac * (max_x - min_x)
             center_y = min_y + frac * (max_y - min_y)
-            
+
             # Create a line through the center point with the given angle
             # Line direction vector from angle
             dx = cos(theta)
             dy = sin(theta)
-            
+
             # Extend the line to intersect the bounding box
             # Calculate how far we need to extend to reach the edges
             width = max_x - min_x
             height = max_y - min_y
             max_distance = hypot(width, height)
-            
+
             # Create line endpoints extending in both directions
             x1 = center_x - max_distance * dx
             y1 = center_y - max_distance * dy
             x2 = center_x + max_distance * dx
             y2 = center_y + max_distance * dy
-            
+
             return LineString([(x1, y1), (x2, y2)])
 
     def _try_angle_slice(
@@ -398,10 +398,13 @@ class Player6(Player):
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Adaptive coarse-to-fine search for cuts with multiple angles using parallel processing."""
+        # get_cuts_iterative() for n-1 children
         result = self.get_cuts_divide_conquer()
         if not result:
             return []
         return result
+
+    def get_cuts_iterative(self) -> list[tuple[Point, Point]]:
         result: list[tuple[Point, Point]] = []
 
         while len(result) < self.children - 1:
@@ -612,4 +615,4 @@ class Player6(Player):
             ratio_score = 0.0
 
         # adding line length as the last factor as after dividing area equally we would love to have more interior !
-        return (area_score, ratio_score, 1/LineString(cut.points).length)
+        return (area_score, ratio_score, 1 / LineString(cut.points).length)
