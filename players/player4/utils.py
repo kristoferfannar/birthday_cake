@@ -1,9 +1,7 @@
 from shapely.geometry import Polygon, LineString, Point
 from shapely.ops import split
 
-from players.player import Player
 from src.cake import Cake
-import math
 
 
 def get_final_piece_targets(cake: Cake, children: int) -> dict[str, float]:
@@ -57,6 +55,6 @@ def make_cut(
         if not piece1.is_valid or not piece2.is_valid:
             return None
         return piece1, piece2
-    except Exception as e:
+    except Exception:
         # If splitting fails for any reason, return None
         return None
