@@ -20,7 +20,7 @@ class Player10(Player):
     ) -> None:
         super().__init__(children, cake, cake_path)
         # Binary search tolerance: area within 0.5 cm² of target
-        self.target_area_tolerance = 0.005
+        self.target_area_tolerance = 0.0001
         # Number of different angles to try (more attempts = better for complex shapes)
         self.num_angle_attempts = num_angle_attempts
 
@@ -92,29 +92,45 @@ class Player10(Player):
                     coords = list(geom.coords)
                     points.extend([Point(coords[0]), Point(coords[-1])])
 
-        # Remove duplicates (sometimes endpoints overlap)
         unique_points = []
+        tolerance = 1e-6
         for p in points:
-            if not any(p.equals(q) for q in unique_points):
+            is_duplicate = False
+            for q in unique_points:
+                if p.distance(q) < tolerance:
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
                 unique_points.append(p)
         points = unique_points
 
         if len(points) < 2:
             return None  # Not enough points for a valid cut
 
-        # If more than 2 points, select the two farthest apart along the line
-        if len(points) > 2:
-            # Project points onto the line and sort by their position
-            def proj(pt):
-                return line.project(pt)
+        # If exactly 2 points, use them
+        if len(points) == 2:
+            return (points[0], points[1])
 
-            points_sorted = sorted(points, key=proj)
-            # The two farthest apart will be the first and last after sorting
-            cut_points = (points_sorted[0], points_sorted[-1])
-        else:
-            cut_points = (points[0], points[1])
+        # If more than 2 points, we need to find the pair that creates a valid cut
+        # A valid cut should split the piece into exactly 2 pieces
+        # Try all pairs and find the one that works
+        from itertools import combinations
 
-        return cut_points
+        for p1, p2 in combinations(points, 2):
+            test_line = LineString([p1, p2])
+            # Check if this line segment is mostly inside the piece
+            # by checking if the midpoint is inside
+            midpoint = test_line.interpolate(0.5, normalized=True)
+            if piece.contains(midpoint) or piece.boundary.contains(midpoint):
+                # Also verify this cut would split into exactly 2 pieces
+                from shapely.ops import split as shapely_split
+
+                result = shapely_split(piece, test_line)
+                if len(result.geoms) == 2:
+                    return (p1, p2)
+
+        # Fallback: if no valid pair found, return None
+        return None
 
     def calculate_piece_area(self, piece: Polygon, position: float, angle: float):
         """Determines the area of the pieces we cut.
@@ -173,7 +189,7 @@ class Player10(Player):
         best_error = float("inf")
 
         # try for best cut for 50 iterations
-        for iteration in range(100):
+        for iteration in range(50):
             # try middle first
             mid_pos = (left_pos + right_pos) / 2
 
@@ -209,353 +225,6 @@ class Player10(Player):
                 right_pos = mid_pos  # Too much, move left
 
         return best_pos
-
-    def try_cutting_at_angle(
-        self, angle: float, verbose: bool = False
-    ) -> tuple[list[tuple[Point, Point]], float] | None:
-        """Try cutting the cake at a specific angle and return cuts with their score.
-
-        Args:
-            angle: Angle in degrees (0-360) for cutting direction
-            verbose: Whether to print debug information
-
-        Returns:
-            Tuple of (cuts, variance_score) if successful, None if failed
-            Lower variance_score is better
-        """
-        if verbose:
-            print(f"\n  Trying angle {angle:.1f} degrees...")
-
-        target_area = self.cake.get_area() / self.children
-        cuts = []
-        cake_copy = self.cake.copy()
-
-        # Try to make all n-1 cuts
-        for cut_idx in range(self.children - 1):
-            current_pieces = cake_copy.get_pieces()
-            # Always cut the biggest piece
-            cutting_piece = max(current_pieces, key=lambda pc: pc.area)
-
-            if verbose:
-                print(
-                    f"    Cut {cut_idx + 1}: Cutting piece with area {cutting_piece.area:.2f}, target piece {target_area:.2f}"
-                )
-
-            # Find the best position using binary search
-            position = self.binary_search(cutting_piece, target_area, angle)
-
-            # If we can't find a position, this angle doesn't work
-            if position is None:
-                if verbose:
-                    print(f"    Cut {cut_idx + 1}: Failed to find position")
-                return None
-
-            # Find the actual cut points
-            cut_line = self.find_line(position, cutting_piece, angle)
-            cut_points = self.find_cuts(cut_line, cutting_piece)
-
-            if cut_points is None:
-                if verbose:
-                    print(f"    Cut {cut_idx + 1}: Failed to find cut points")
-                return None
-
-            from_p, to_p = cut_points
-
-            # Check if the cut is valid
-            is_valid, why = cake_copy.cut_is_valid(from_p, to_p)
-            if not is_valid:
-                if verbose:
-                    print(f"    Cut {cut_idx + 1}: Invalid - {why}")
-                return None
-
-            # Try to make the cut
-            try:
-                cake_copy.cut(from_p, to_p)
-                cuts.append((from_p, to_p))
-
-                # Check the resulting piece sizes
-                if verbose:
-                    new_pieces = cake_copy.get_pieces()
-                    areas = [p.area for p in new_pieces]
-                    print(
-                        f"      -> Resulted in areas: {[f'{a:.2f}' for a in sorted(areas)]}"
-                    )
-
-            except Exception as e:
-                if verbose:
-                    print(f"    Cut {cut_idx + 1}: Exception - {e}")
-                return None
-
-        # Check if we got the right number of pieces
-        if len(cake_copy.get_pieces()) != self.children:
-            if verbose:
-                print(
-                    f"    Failed: Got {len(cake_copy.get_pieces())} pieces, expected {self.children}"
-                )
-            return None
-
-        # Check piece size consistency
-        areas = [p.area for p in cake_copy.get_pieces()]
-        size_span = max(areas) - min(areas)
-
-        # Per project spec: pieces within 0.5 cm² are considered same size
-        # But for the sweeping algorithm, we need some tolerance
-        # Use a reasonable threshold based on number of children
-        max_acceptable_span = max(
-            5.0, target_area * 0.15
-        )  # At least 5 cm² or 15% of target
-
-        if size_span > max_acceptable_span:
-            if verbose:
-                print(
-                    f"    Failed: Size span {size_span:.2f} is too large (>{max_acceptable_span:.2f})"
-                )
-            return None
-
-        # Calculate crust ratio variance (our score to minimize)
-        ratios = cake_copy.get_piece_ratios()
-
-        # Check if all pieces are valid (have reasonable ratios)
-        if any(r < 0 or r > 1 for r in ratios):
-            if verbose:
-                print(f"    Failed: Invalid ratios {ratios}")
-            return None
-
-        # Calculate variance in ratios (lower is better)
-        if len(ratios) > 1:
-            variance = stdev(ratios)
-        else:
-            variance = 0.0
-
-        if verbose:
-            print(f"    Success! Variance: {variance:.4f}, Size span: {size_span:.2f}")
-            print(f"    Areas: {[f'{a:.2f}' for a in sorted(areas)]}")
-            print(f"    Ratios: {[f'{r:.3f}' for r in ratios]}")
-
-        return (cuts, variance)
-
-    def find_best_cut_at_angle(
-        self,
-        cutting_piece: Polygon,
-        target_area: float,
-        angle: float,
-        cake_copy: Cake,
-        is_last_cut: bool = False,
-    ) -> tuple[Point, Point, float, float] | None:
-        """Try cutting at a specific angle and return the cut points and resulting piece info.
-
-        Args:
-            cutting_piece: The piece to cut
-            target_area: Target area for the cut piece
-            angle: Angle to try
-            cake_copy: Current state of the cake
-            is_last_cut: Whether this is the last cut (more lenient validation)
-
-        Returns:
-            Tuple of (from_point, to_point, crust_ratio_of_new_piece, area_of_new_piece) or None if invalid
-        """
-        # Find the best position using binary search
-        position = self.binary_search(cutting_piece, target_area, angle)
-
-        if position is None:
-            return None
-
-        # Find the actual cut points
-        cut_line = self.find_line(position, cutting_piece, angle)
-        cut_points = self.find_cuts(cut_line, cutting_piece)
-
-        if cut_points is None:
-            return None
-
-        from_p, to_p = cut_points
-
-        # Check if the cut is valid
-        is_valid, why = cake_copy.cut_is_valid(from_p, to_p)
-        if not is_valid:
-            return None
-
-        # Simulate the cut to get the new piece and its crust ratio
-        test_cake = cake_copy.copy()
-        try:
-            # Find which piece gets created
-            # pieces_before = [p.area for p in test_cake.get_pieces()]
-            test_cake.cut(from_p, to_p)
-            pieces_after = test_cake.get_pieces()
-
-            # Find the new piece (smallest one, as we're cutting off target_area)
-            new_piece = min(pieces_after, key=lambda p: p.area)
-            new_piece_ratio = test_cake.get_piece_ratio(new_piece)
-            new_piece_area = new_piece.area
-
-            # Validate the new piece size is reasonable
-            # More lenient for last cut, or when cutting small pieces
-            if is_last_cut:
-                tolerance = 0.5  # Very lenient for last cut
-            elif cutting_piece.area < target_area * 2:
-                tolerance = 0.4  # Lenient for small pieces
-            else:
-                tolerance = 0.3  # Standard tolerance
-
-            if abs(new_piece_area - target_area) > target_area * tolerance:
-                return None
-
-            return (from_p, to_p, new_piece_ratio, new_piece_area)
-
-        except Exception:
-            return None
-
-    def try_divide_and_conquer_cut(
-        self, piece: Polygon, num_children: int, target_ratio: float, depth: int = 0
-    ) -> tuple[list[tuple[Point, Point]], float] | None:
-        """Try to cut a piece for num_children using divide-and-conquer with different ratios.
-
-        Args:
-            piece: The polygon piece to divide
-            num_children: Number of children to serve from this piece
-            target_ratio: Target crust ratio
-            depth: Recursion depth for logging
-
-        Returns:
-            Tuple of (cuts, score) or None if failed
-        """
-        if num_children == 1:
-            # Base case: no more cuts needed
-            return ([], 0.0)
-
-        if num_children == 2:
-            # Base case: just split in half (1:1 ratio)
-            target_area = piece.area / 2
-
-            best_cut = None
-            best_score = float("inf")
-
-            # Try fewer angles for base case
-            num_attempts = 10  # Much fewer attempts
-            for _ in range(num_attempts):
-                angle = random.uniform(0, 180)
-                position = self.binary_search(piece, target_area, angle)
-
-                if position is None:
-                    continue
-
-                cut_line = self.find_line(position, piece, angle)
-                cut_points = self.find_cuts(cut_line, piece)
-
-                if cut_points is None:
-                    continue
-
-                from_p, to_p = cut_points
-
-                # Simulate cut and evaluate
-                test_pieces = split(piece, cut_line)
-                if len(test_pieces.geoms) != 2:
-                    continue
-
-                p1, p2 = test_pieces.geoms
-                ratio1 = self.cake.get_piece_ratio(p1)
-                ratio2 = self.cake.get_piece_ratio(p2)
-
-                # Score based on ratio uniformity and size balance
-                ratio_error = abs(ratio1 - ratio2)
-                size_error = abs(p1.area - p2.area) / piece.area
-                score = ratio_error * 2.0 + size_error * 1.0
-
-                if score < best_score:
-                    best_score = score
-                    best_cut = (from_p, to_p)
-
-                    # Early stopping if good enough
-                    if score < 0.05:
-                        break
-
-            if best_cut:
-                return ([best_cut], best_score)
-            return None
-
-        # Try random (ratio, angle) pairs together
-        best_result = None
-        best_total_score = float("inf")
-
-        max_ratio_numerator = num_children // 2
-        if max_ratio_numerator < 1:
-            return None
-
-        # Number of random (ratio, angle) attempts
-        # Drastically reduce to prevent exponential blowup
-        if depth == 0:
-            num_attempts = 10  # Very limited at top level
-        elif depth == 1:
-            num_attempts = 5  # Even fewer at depth 1
-        else:
-            num_attempts = 3  # Minimal at deeper levels
-
-        for attempt in range(num_attempts):
-            # Randomly select BOTH ratio AND angle together
-            split_count = random.randint(1, max_ratio_numerator)
-            angle = random.uniform(0, 180)
-
-            # Try to cut off split_count children's worth at this angle
-            target_area = piece.area * split_count / num_children
-            remaining_count = num_children - split_count
-
-            position = self.binary_search(piece, target_area, angle)
-            if position is None:
-                continue
-
-            cut_line = self.find_line(position, piece, angle)
-            cut_points = self.find_cuts(cut_line, piece)
-            if cut_points is None:
-                continue
-
-            from_p, to_p = cut_points
-
-            # Simulate the cut
-            test_pieces = split(piece, cut_line)
-            if len(test_pieces.geoms) != 2:
-                continue
-
-            p1, p2 = test_pieces.geoms
-
-            # Identify which piece is for split_count children
-            if p1.area < p2.area:
-                small_piece, large_piece = p1, p2
-                small_count, large_count = split_count, remaining_count
-            else:
-                small_piece, large_piece = p2, p1
-                small_count, large_count = split_count, remaining_count
-
-            # Quick score for this cut
-            ratio1 = self.cake.get_piece_ratio(p1)
-            ratio2 = self.cake.get_piece_ratio(p2)
-            cut_score = abs(ratio1 - target_ratio) + abs(ratio2 - target_ratio)
-
-            # Recursively divide both pieces
-            result1 = self.try_divide_and_conquer_cut(
-                small_piece, small_count, target_ratio, depth + 1
-            )
-            result2 = self.try_divide_and_conquer_cut(
-                large_piece, large_count, target_ratio, depth + 1
-            )
-
-            if result1 is None or result2 is None:
-                continue
-
-            cuts1, score1 = result1
-            cuts2, score2 = result2
-
-            # Combine results
-            all_cuts = [(from_p, to_p)] + cuts1 + cuts2
-            total_score = cut_score + score1 + score2
-
-            if total_score < best_total_score:
-                best_total_score = total_score
-                best_result = (all_cuts, total_score)
-
-                # Early stopping: if we found a very good solution, stop searching
-                if total_score < 0.1 * num_children:  # Good enough threshold
-                    break
-
-        return best_result
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Main cutting logic - greedy approach with random (ratio, angle) pairs"""
@@ -689,10 +358,6 @@ class Player10(Player):
                 else:
                     small_piece, large_piece = p2, p1
 
-                size_error = abs(small_piece.area - target_cut_area)
-                if size_error > target_area * 0.15:  # More than 15% off target
-                    continue
-
                 # Get crust ratios
                 ratio1 = self.cake.get_piece_ratio(small_piece)
                 ratio2 = self.cake.get_piece_ratio(large_piece)
@@ -727,7 +392,7 @@ class Player10(Player):
                 best_ratio_from_phase1 = min(
                     split_ratio_scores.keys(), key=lambda k: split_ratio_scores[k]
                 )
-                phase2_attempts = num_attempts - phase1_attempts
+                phase2_attempts = 360
 
                 print(
                     f"  Phase 1 complete. Best split ratio: {best_ratio_from_phase1}/{cutting_num_children}"
@@ -742,10 +407,8 @@ class Player10(Player):
                 target_cut_area_phase2 = target_area * best_ratio_from_phase1
 
                 # In phase 2, try cardinal angles again with the best ratio, then random
-                phase2_angles = list(cardinal_angles) + [
-                    random.uniform(0, 180)
-                    for _ in range(phase2_attempts - len(cardinal_angles))
-                ]
+                angle_step = 360.0 / phase2_attempts
+                phase2_angles = [i * angle_step for i in range(phase2_attempts)]
 
                 for angle in phase2_angles:
                     # Only vary angle, keep the best split ratio
@@ -793,7 +456,7 @@ class Player10(Player):
                         ratio2 - target_ratio
                     )
                     score = size_error * 3.0 + ratio_error * 1.0
-
+                    # print(f"    Angle {angle:.1f}°: score={score:.3f} (size_err={size_error:.2f}, ratio_err={ratio_error:.3f})")
                     if score < best_score:
                         best_score = score
                         best_cut = (
@@ -807,6 +470,9 @@ class Player10(Player):
                         )
                         best_split_ratio = (split_children, remaining_children)
 
+            print(
+                f"    New best cut found at angle {angle:.1f}° with score {best_score:.3f}"
+            )
             if best_cut is None:
                 print(f"  No valid cut found after {num_attempts} attempts!")
                 # Put the piece back for now (shouldn't happen often)
@@ -861,86 +527,10 @@ class Player10(Player):
         print(f"\nCrust ratios: {[f'{r:.3f}' for r in ratios]}")
         if len(ratios) > 1:
             ratio_variance = stdev(ratios)
-            print(f"  Variance: {ratio_variance:.4f}")
-            print(
-                f"  Min: {min(ratios):.3f}, Max: {max(ratios):.3f}, Span: {max(ratios) - min(ratios):.3f}"
-            )
+        print(f"  Variance: {ratio_variance:.4f}")
+        print(
+            f"  Min: {min(ratios):.3f}, Max: {max(ratios):.3f}, Span: {max(ratios) - min(ratios):.3f}"
+        )
         print(f"{'=' * 50}\n")
 
         return all_cuts
-
-    def _sequential_cutting(self) -> list[tuple[Point, Point]]:
-        """Fallback: Sequential per-piece cutting with angle selection"""
-        target_area = self.cake.get_area() / self.children
-        target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
-
-        cuts = []
-        cake_copy = self.cake.copy()
-
-        for cut_idx in range(self.children - 1):
-            print(f"=== Cut {cut_idx + 1}/{self.children - 1} ===")
-
-            current_pieces = cake_copy.get_pieces()
-            cutting_piece = max(current_pieces, key=lambda pc: pc.area)
-
-            print(f"Cutting piece area: {cutting_piece.area:.2f}")
-
-            is_last_cut = cut_idx == self.children - 2
-
-            best_cut = None
-            best_score = float("inf")
-            best_angle = None
-
-            num_attempts = (
-                self.num_angle_attempts * 2 if is_last_cut else self.num_angle_attempts
-            )
-            valid_attempts = 0
-
-            for attempt in range(num_attempts):
-                angle = random.uniform(0, 180)
-
-                result = self.find_best_cut_at_angle(
-                    cutting_piece, target_area, angle, cake_copy, is_last_cut
-                )
-
-                if result is not None:
-                    from_p, to_p, piece_ratio, piece_area = result
-
-                    size_error = abs(piece_area - target_area) / target_area
-                    ratio_error = abs(piece_ratio - target_ratio)
-                    score = size_error * 3.0 + ratio_error * 1.0
-
-                    valid_attempts += 1
-
-                    if score < best_score:
-                        best_score = score
-                        best_cut = (from_p, to_p)
-                        best_angle = angle
-                        best_ratio = piece_ratio
-                        best_size = piece_area
-
-            if best_cut is None:
-                print("  Failed: No valid cut found")
-                continue
-
-            from_p, to_p = best_cut
-            try:
-                cake_copy.cut(from_p, to_p)
-                cuts.append((from_p, to_p))
-
-                areas = [p.area for p in cake_copy.get_pieces()]
-                size_error = abs(best_size - target_area)
-                ratio_error = abs(best_ratio - target_ratio)
-                print(
-                    f"  Best angle: {best_angle:.1f}° (tried {valid_attempts} valid angles)"
-                )
-                print(
-                    f"  Piece: size={best_size:.2f} (target={target_area:.2f}, err={size_error:.2f}), ratio={best_ratio:.3f} (target={target_ratio:.3f}, err={ratio_error:.3f})"
-                )
-                print(f"  Current areas: {[f'{a:.2f}' for a in sorted(areas)]}\n")
-
-            except Exception as e:
-                print(f"  Error applying cut: {e}")
-                break
-
-        return cuts

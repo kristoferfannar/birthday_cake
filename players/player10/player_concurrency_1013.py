@@ -9,9 +9,6 @@ from players.player import Player
 from src.cake import Cake
 from shapely.ops import split
 
-PHRASE_ONE_TOTAL_ATTEMPS = 90 * 6 * 9
-PHRASE_TWO_TOTAL_ATTEMPS = 360 * 6 * 9
-
 
 class Player10(Player):
     def __init__(
@@ -19,17 +16,17 @@ class Player10(Player):
         children: int,
         cake: Cake,
         cake_path: str | None,
-        # phrase_one_attempts: int = 90 * 8,
-        # phrase_two_attempts: int = 360 * 8,
+        phrase_one_attempts: int = 90,
+        phrase_two_attempts: int = 360,
         num_of_processes: int = 8,
     ) -> None:
         super().__init__(children, cake, cake_path)
         # Binary search tolerance: area within 0.5 cm² of target
         self.target_area_tolerance = 0.0001
         # Number of different angles to try in phase 1 (more attempts = better for complex shapes)
-        self.phrase_one_attempts = PHRASE_ONE_TOTAL_ATTEMPS // children
+        self.phrase_one_attempts = phrase_one_attempts
         # Number of different angles to try in phase 2 (more attempts = better for complex shapes)
-        self.phrase_two_attempts = PHRASE_TWO_TOTAL_ATTEMPS // children
+        self.phrase_two_attempts = phrase_two_attempts
         # Number of processes for concurrent search
         self.num_of_processes = min(num_of_processes, mp.cpu_count())
 
