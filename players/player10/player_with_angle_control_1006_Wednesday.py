@@ -890,7 +890,7 @@ class Player10(Player):
                         best_size = piece_area
 
             if best_cut is None:
-                print(f"  Failed: No valid cut found")
+                print("  Failed: No valid cut found")
                 continue
 
             from_p, to_p = best_cut
