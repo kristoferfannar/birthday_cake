@@ -9,12 +9,9 @@ from players.player import Player
 from src.cake import Cake
 from shapely.ops import split
 
-COMPUTATION_RATIO = 2
-PHRASE_ONE_TOTAL_ATTEMPS = 90 * 9 * COMPUTATION_RATIO
+COMPUTATION_RATIO = 6
+PHRASE_ONE_TOTAL_ATTEMPS = 60 * 9 * COMPUTATION_RATIO
 PHRASE_TWO_TOTAL_ATTEMPS = 360 * 9 * COMPUTATION_RATIO
-PHRASE_THREE_TOTAL_ATTEMPS = 90 * 9 * COMPUTATION_RATIO
-PHRASE_THREE_STEP = 2
-
 
 class Player10(Player):
     def __init__(
@@ -22,7 +19,8 @@ class Player10(Player):
         children: int,
         cake: Cake,
         cake_path: str | None,
-        phrase_three_attempts: int = 180,
+        # phrase_one_attempts: int = 90 * 8,
+        # phrase_two_attempts: int = 360 * 8,
         num_of_processes: int = 8,
     ) -> None:
         super().__init__(children, cake, cake_path)
@@ -32,9 +30,7 @@ class Player10(Player):
         self.phrase_one_attempts = PHRASE_ONE_TOTAL_ATTEMPS // (children - 1)
         # Number of different angles to try in phase 2 (more attempts = better for complex shapes)
         self.phrase_two_attempts = PHRASE_TWO_TOTAL_ATTEMPS // (children - 1)
-        # Number of different angles to try in phase 3 (fine-grained search)
-        self.phrase_three_attempts = PHRASE_THREE_TOTAL_ATTEMPS // (children - 1)
-        # Number of processes for concurrent search
+        # # Number of processes for concurrent search
         # self.num_of_processes = min(num_of_processes, mp.cpu_count())
         self.num_of_processes = num_of_processes
 
@@ -411,7 +407,7 @@ class Player10(Player):
                     attempts_to_try.append((split_children, angle, "phase1"))
 
             # Phase 1: Random sample all split ratios (first half)
-            for _ in range(self.phrase_one_attempts // 2):
+            for _ in range(self.phrase_one_attempts):
                 split_children = random.randint(min_split, max_split)
                 angle = random.uniform(0, 180)
                 attempts_to_try.append((split_children, angle, "phase1"))
@@ -424,7 +420,7 @@ class Player10(Player):
             batches = [attempts_to_try[i:i + batch_size] for i in range(0, len(attempts_to_try), batch_size)]
 
             # Use ProcessPoolExecutor for concurrent processing
-            with ProcessPoolExecutor(max_workers=max(1,self.num_of_processes // 4)) as executor:
+            with ProcessPoolExecutor(max_workers=self.num_of_processes) as executor:
                 # Submit all batches
                 future_to_batch = {
                     executor.submit(self._process_batch, batch, cutting_piece, cutting_num_children, target_area, target_ratio): batch
@@ -522,80 +518,9 @@ class Player10(Player):
                             print(f"    Error in phase 2 batch processing: {e}")
                             continue
 
-            # Phase 3: Fine-grained search around the best angle
-            if best_cut is not None:
-                best_angle = best_cut[6]  # Extract angle from best_cut tuple
-
-                print(
-                    f"  Phase 2 complete. Best angle: {best_angle:.1f}° with score {best_score:.3f}"
-                )
-                print(
-                    f"  Phase 3: Fine-grained search around {best_angle:.1f}° with {self.phrase_three_attempts} attempts..."
-                )
-
-                # Calculate angle step from phase 2
-                angle_step_phase2 = 360.0 / self.phrase_two_attempts
-
-                # Define search range: best_angle +/- 2 * angle_step_phase2
-                search_range = PHRASE_THREE_STEP * angle_step_phase2
-                angle_min = max(0, best_angle - search_range)
-                angle_max = min(360, best_angle + search_range)
-
-                print(f"  Search range: {angle_min:.1f}° to {angle_max:.1f}°")
-
-                # Generate fine-grained angles uniformly in the search range
-                if self.phrase_three_attempts > 1:
-                    fine_angle_step = (angle_max - angle_min) / (self.phrase_three_attempts - 1)
-                    phase3_angles = [angle_min + i * fine_angle_step for i in range(self.phrase_three_attempts)]
-                else:
-                    phase3_angles = [best_angle]
-
-                # Process Phase 3 attempts concurrently
-                phase3_attempts_to_try = [(best_ratio_from_phase1, angle, "phase3") for angle in phase3_angles]
-
-                # Split phase 3 attempts into batches for each process
-                batch_size = max(1, len(phase3_attempts_to_try) // self.num_of_processes)
-                batches = [phase3_attempts_to_try[i:i + batch_size] for i in range(0, len(phase3_attempts_to_try), batch_size)]
-
-                # Use ProcessPoolExecutor for concurrent processing
-                with ProcessPoolExecutor(max_workers=max(1,self.num_of_processes // 4)) as executor:
-                    # Submit all batches
-                    future_to_batch = {
-                        executor.submit(self._process_batch, batch, cutting_piece, cutting_num_children, target_area, target_ratio): batch
-                        for batch in batches
-                    }
-
-                    # Collect results as they complete
-                    for future in as_completed(future_to_batch):
-                        try:
-                            result = future.result()
-                            if result:
-                                valid_attempts += 1
-
-                                if result['score'] < best_score:
-                                    best_score = result['score']
-                                    best_cut = (
-                                        result['cut_points'][0],
-                                        result['cut_points'][1],
-                                        result['small_piece'],
-                                        result['large_piece'],
-                                        result['ratio1'],
-                                        result['ratio2'],
-                                        result['angle'],
-                                    )
-                                    best_split_ratio = (result['split_children'], result['remaining_children'])
-
-                        except Exception as e:
-                            print(f"    Error in phase 3 batch processing: {e}")
-                            continue
-
-                print(
-                    f"    Phase 3 complete. Final best angle: {best_cut[6]:.1f}° with score {best_score:.3f}"
-                )
-            else:
-                print(
-                    f"    Best cut found with score {best_score:.3f}"
-                )
+            print(
+                f"    Best cut found with score {best_score:.3f}"
+            )
             if best_cut is None:
                 print(f"  No valid cut found after {len(attempts_to_try) + len(phase2_attempts_to_try)} attempts!")
                 # Put the piece back for now (shouldn't happen often)
