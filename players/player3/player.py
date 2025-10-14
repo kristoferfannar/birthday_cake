@@ -49,6 +49,41 @@ class Player3(Player):
 
         return cuts
 
+    def _bucket_cutting_strategy(self) -> list[tuple[Point, Point]]:
+        """Bucket cutting algorithm."""
+        cuts = []
+        working_cake = self.cake.copy()
+        remaining_children = self.children
+
+        while remaining_children > 1:
+            print(f"Remaining children: {remaining_children}")
+
+            largest_piece = max(working_cake.get_pieces(), key=lambda piece: piece.area)
+
+            # Lets try all of the possible ratios, prioritizing the largest first
+            potential_ratios = [
+                i / remaining_children for i in range(1, (remaining_children // 2) + 1)
+            ]
+            potential_ratios.sort(reverse=True)
+            best_cut = None
+            for target_ratio in potential_ratios:
+                best_cut = self._find_best_cut_for_piece(
+                    working_cake, largest_piece, target_ratio
+                )
+                if best_cut is not None:
+                    break  # Found a valid cut, exit the loop
+
+            if best_cut is None:
+                # Could not find a cut for any ratio
+                print("No valid cut found for any ratio, stopping.")
+                break
+
+            cuts.append(best_cut)
+            working_cake.cut(best_cut[0], best_cut[1])
+            remaining_children -= 1
+
+        return cuts
+
     def _find_best_cut_for_piece(
         self, cake: Cake, piece, desired_cut_ratio: float
     ) -> tuple[Point, Point] | None:
