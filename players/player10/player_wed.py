@@ -70,25 +70,51 @@ class Player10(Player):
         return cut_line
 
     def find_cuts(self, line: LineString, piece: Polygon):
-        """This function finds the actual points where the cut line goes through cake"""
+        """Find exactly two points where the cut line intersects the cake boundary, ensuring only one cut per turn."""
         intersection = line.intersection(piece.boundary)
 
-        # What is the intersections geometry? - want it to be at least two points
-        if intersection.is_empty or intersection.geom_type == "Point":
-            return None
+        # Collect all intersection points
         points = []
-        if intersection.geom_type == "MultiPoint":
+        if intersection.is_empty:
+            return None  # No intersection
+        if intersection.geom_type == "Point":
+            points = [intersection]
+        elif intersection.geom_type == "MultiPoint":
             points = list(intersection.geoms)
         elif intersection.geom_type == "LineString":
             coords = list(intersection.coords)
-            points = [Point(c) for c in coords]
+            points = [Point(coords[0]), Point(coords[-1])]
+        elif intersection.geom_type == "GeometryCollection":
+            for geom in intersection.geoms:
+                if geom.geom_type == "Point":
+                    points.append(geom)
+                elif geom.geom_type == "LineString":
+                    coords = list(geom.coords)
+                    points.extend([Point(coords[0]), Point(coords[-1])])
 
-        # Need at least 2 points for a valid cut
+        # Remove duplicates (sometimes endpoints overlap)
+        unique_points = []
+        for p in points:
+            if not any(p.equals(q) for q in unique_points):
+                unique_points.append(p)
+        points = unique_points
+
         if len(points) < 2:
-            return None
+            return None  # Not enough points for a valid cut
 
-        # return the points where the sweeping line intersects with the cake
-        return (points[0], points[1])
+        # If more than 2 points, select the two farthest apart along the line
+        if len(points) > 2:
+            # Project points onto the line and sort by their position
+            def proj(pt):
+                return line.project(pt)
+
+            points_sorted = sorted(points, key=proj)
+            # The two farthest apart will be the first and last after sorting
+            cut_points = (points_sorted[0], points_sorted[-1])
+        else:
+            cut_points = (points[0], points[1])
+
+        return cut_points
 
     def calculate_piece_area(self, piece: Polygon, position: float, angle: float):
         """Determines the area of the pieces we cut.
@@ -147,7 +173,7 @@ class Player10(Player):
         best_error = float("inf")
 
         # try for best cut for 50 iterations
-        for iteration in range(50):
+        for iteration in range(100):
             # try middle first
             mid_pos = (left_pos + right_pos) / 2
 
@@ -533,12 +559,12 @@ class Player10(Player):
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Main cutting logic - greedy approach with random (ratio, angle) pairs"""
-        print("__________Cutting for {self.children} children_______")
+        print(f"__________Cutting for {self.children} children_______")
 
         target_area = self.cake.get_area() / self.children
         target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
-        print("TARGET AREA: {target_area:.2f} cm²")
-        print("TARGET CRUST RATIO: {target_ratio:.3f}")
+        print(f"TARGET AREA: {target_area:.2f} cm²")
+        print(f"TARGET CRUST RATIO: {target_ratio:.3f}")
         print("Strategy: Greedy cutting with random ratio+angle exploration\n")
 
         return self._greedy_ratio_angle_cutting(target_area, target_ratio)
@@ -662,6 +688,10 @@ class Player10(Player):
                     small_piece, large_piece = p1, p2
                 else:
                     small_piece, large_piece = p2, p1
+
+                size_error = abs(small_piece.area - target_cut_area)
+                if size_error > target_area * 0.15:  # More than 15% off target
+                    continue
 
                 # Get crust ratios
                 ratio1 = self.cake.get_piece_ratio(small_piece)
