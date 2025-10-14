@@ -26,9 +26,12 @@ class Player3(Player):
             print(f"Remaining children: {remaining_children}")
 
             largest_piece = max(working_cake.get_pieces(), key=lambda piece: piece.area)
-            #If this is the first cut, let's try to cut in as close to half as possible
+            # If this is the first cut, let's try to cut in as close to half as possible
             if remaining_children == self.children:
-                potential_ratios = [i / remaining_children for i in range(1, (remaining_children // 2) + 1)]
+                potential_ratios = [
+                    i / remaining_children
+                    for i in range(1, (remaining_children // 2) + 1)
+                ]
                 target_ratio = max(potential_ratios)
             else:
                 target_ratio = 1.0 / self.children
@@ -55,7 +58,7 @@ class Player3(Player):
         valid_cuts = find_valid_cuts_binary_search(
             cake,
             perimeter_points,
-            self.target_area*self.children*desired_cut_ratio,
+            self.target_area * self.children * desired_cut_ratio,
             self.original_ratio,
         )
 
