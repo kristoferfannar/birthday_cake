@@ -13,7 +13,7 @@ from shapely.ops import split
 COMPUTATION_RATIO = 8
 PHRASE_ONE_TOTAL_ATTEMPS = 90 * 9 * COMPUTATION_RATIO
 PHRASE_TWO_TOTAL_ATTEMPS = 360 * 9 * COMPUTATION_RATIO
-PHRASE_THREE_TOTAL_ATTEMPS = 90 * 9 * COMPUTATION_RATIO
+PHRASE_THREE_TOTAL_ATTEMPS = 60 * 9 * COMPUTATION_RATIO
 PHRASE_THREE_STEP = 2.5
 
 # Error handling and retry constants
@@ -22,7 +22,7 @@ RATIO_VARIANCE_THRESHOLD = 3  # Maximum allowed crust ratio variance
 MIN_COMPUTATION_RATIO = 0.5  # Minimum computation ratio before giving up
 DEFAULT_MAX_REPEAT_TIMES = 20  # Maximum number of retry attempts
 TIME_LIMIT_SECONDS = 60 * 4.5  # Maximum time limit before timeout
-DEFAULT_MINI_TIME = 60 * 1  # Time threshold for computation ratio decay
+DEFAULT_MINI_TIME = 60 * 1.5  # Time threshold for computation ratio decay
 
 
 class Player10(Player):
@@ -484,7 +484,11 @@ class Player10(Player):
                     print(f"  Ratio variance: {ratio_variance_scaled:.2f} (threshold: {RATIO_VARIANCE_THRESHOLD})")
 
                     # Check if we found a perfect result (both metrics are 0.00)
-                    if round(size_span, 2) == 0.00 and round(ratio_variance_scaled, 2) == 0.00:
+                    size_span_rounded = round(size_span, 2)
+                    ratio_variance_rounded = round(ratio_variance_scaled, 2)
+                    print(f"DEBUG: size_span={size_span:.6f} -> {size_span_rounded}, ratio_variance={ratio_variance_scaled:.6f} -> {ratio_variance_rounded}")
+
+                    if size_span_rounded == 0.00 and ratio_variance_rounded == 0.00:
                         print(f"🎯 PERFECT result found! Size span and ratio variance both 0.00, returning immediately!")
                         return all_cuts
 
