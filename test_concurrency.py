@@ -6,8 +6,6 @@ Tests different process counts and measures execution time.
 
 import time
 import subprocess
-import sys
-import os
 from pathlib import Path
 
 
