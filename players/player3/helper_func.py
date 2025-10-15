@@ -49,8 +49,8 @@ def binary_search_cut(
     xy2_angle = math.atan2(rise, run)
 
     # we want to search +/- 180 degrees from initial angle
-    left = xy2_angle - 2*math.pi
-    right = xy2_angle + 2*math.pi
+    left = xy2_angle - 2 * math.pi
+    right = xy2_angle + 2 * math.pi
 
     best_xy2 = None
     best_area_diff = float("inf")

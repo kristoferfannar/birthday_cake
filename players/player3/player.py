@@ -14,7 +14,7 @@ class Player3(Player):
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Greedily generate cuts to divide cake into equal pieces."""
-        return self._greedy_cutting_strategy()
+        return self._bucket_cutting_strategy()
 
     def _greedy_cutting_strategy(self) -> list[tuple[Point, Point]]:
         """Main greedy cutting algorithm."""
@@ -36,7 +36,7 @@ class Player3(Player):
                 ]
                 target_ratio = max(potential_ratios)
             else:
-                #Cut one piece at a time
+                # Cut one piece at a time
                 target_ratio = self.target_area / largest_piece.area
 
             best_cut = self._find_best_cut_for_piece(
@@ -113,13 +113,12 @@ class Player3(Player):
         if best_cut is None:
             print("No valid cut found for any ratio, stopping.")
             return
-        
+
         # Assign children proportional to the chosen ratio
         left_children = int(round(best_split[0].area / self.target_area))
         right_children = num_children - left_children
         print("left children: ", left_children)
         print("right children: ", right_children)
-
 
         # Record the chosen cut
         cuts.append(best_cut)
@@ -127,19 +126,18 @@ class Player3(Player):
         working_cake.cut(best_cut[0], best_cut[1])
         print("BEST CUT ", best_cut, " and AREA: ", areas, "| RATIO: ", best_ratio)
 
-        
         # Recursively cut each subpiece
         self._recursive_bucket_cut(working_cake, best_split[0], left_children, cuts)
         # make cuts from the left piece for the working cake using cuts
         print("Working Cake Pieces", working_cake.get_pieces())
-        
-        #If valid cut, cut the working cake (So update the left half to the right half)
+
+        # If valid cut, cut the working cake (So update the left half to the right half)
         for cut in cuts:
             not_already_cut, _ = working_cake.cut_is_valid(cut[0], cut[1])
             if not_already_cut:
                 working_cake.cut(cut[0], cut[1])
-        
-        set_pieces = working_cake.get_pieces()        
+
+        set_pieces = working_cake.get_pieces()
         print("Working Cake Areas", [p.area for p in set_pieces])
 
         self._recursive_bucket_cut(working_cake, best_split[1], right_children, cuts)
@@ -153,7 +151,7 @@ class Player3(Player):
         valid_cuts = find_valid_cuts_binary_search(
             cake,
             perimeter_points,
-            #self.target_area * self.children * desired_cut_ratio,
+            # self.target_area * self.children * desired_cut_ratio,
             piece.area * desired_cut_ratio,
             self.original_ratio,
         )
