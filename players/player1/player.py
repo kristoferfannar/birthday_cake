@@ -50,16 +50,23 @@ def _long_line(theta: float, c: float, pad: float = 1e5) -> LineString:
     )
 
 
-
 def _bounds_proj(P: Polygon, theta: float) -> Tuple[float, float]:
     xmin, ymin, xmax, ymax = P.bounds
     c, s = math.cos(theta), math.sin(theta)
-    vals = [c * xmin + s * ymin, c * xmin + s * ymax, c * xmax + s * ymin, c * xmax * 1.0 + s * ymax]
-    # NOTE: tiny change below: correct last term (typo guard)
-    vals[-1] = c * xmax + s * ymax
+    vals = [
+        c * xmin + s * ymin,
+        c * xmin + s * ymax,
+        c * xmax + s * ymin,
+        c * xmax + s * ymax,
+    ]
     return min(vals), max(vals)
 
-def _longest_chord(P: Polygon, theta: float, c: float) -> Optional[Tuple[Tuple[float,float], Tuple[float,float]]]:
+
+def _longest_chord(
+    P: Polygon,
+    theta: float,
+    c: float,
+) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
     inter = P.intersection(_long_line(theta, c))
     best = None
     bestL = -1.0
@@ -112,11 +119,23 @@ def _split_by_chord(
         L = math.hypot(dx, dy)
         if L > 0:
             eps = SNAP_EPS
-            seg2 = LineString([(ax - eps*dx, ay - eps*dy), (bx + eps*dx, by + eps*dy)])
+            seg2 = LineString(
+                [(ax - eps * dx, ay - eps * dy), (bx + eps * dx, by + eps * dy)],
+            )
             parts = _do(seg2)
     return parts
 
-def _split_by_line(P: Polygon, theta: float, c: float) -> Tuple[float, float, List[Polygon], Optional[Tuple[Tuple[float,float], Tuple[float,float]]]]:
+
+def _split_by_line(
+    P: Polygon,
+    theta: float,
+    c: float,
+) -> Tuple[
+    float,
+    float,
+    List[Polygon],
+    Optional[Tuple[Tuple[float, float], Tuple[float, float]]],
+]:
     chord = _longest_chord(P, theta, c)
     if chord is None:
         return 0.0, P.area, [P], None
@@ -137,8 +156,10 @@ def _snap_to_boundary(pt: ShyPoint, P: Polygon) -> ShyPoint:
     _, on = nearest_points(pt, P.boundary)
     return on
 
-def _bisection_offset_for_alpha(P: Polygon, alpha: float, theta: float) -> Optional[float]:
-    """Find c s.t. exterior area fraction on one side equals alpha."""
+
+def _bisection_offset_for_alpha(
+    P: Polygon, alpha: float, theta: float
+) -> Optional[float]:
     if P.area <= 1e-12:
         return None
     lo, hi = _bounds_proj(P, theta)
@@ -157,22 +178,15 @@ def _bisection_offset_for_alpha(P: Polygon, alpha: float, theta: float) -> Optio
         if left < target:
             lo = mid
         else:
-            hi = mid
-    return 0.5*(lo+hi)
+            return None
+
 
 def _solve_alpha_line(
     P: Polygon,
     alpha: float,
     angle_candidates: List[float],
-    cake_ratio_source: Cake,  # use engine's get_piece_ratio to score
-) -> Optional[Tuple[float, float, Tuple[Tuple[float,float], Tuple[float,float]]]]:
-    """
-    For each θ:
-      - solve c so exterior area on one side is α·area(P)
-      - split P; compute r1,r2 via cake_ratio_source.get_piece_ratio(piece)
-      - pick θ minimizing |r1 - r2|
-    Return (theta, c, chord).
-    """
+    cake_ratio_source: Cake,
+) -> Optional[Tuple[float, float, Tuple[Tuple[float, float], Tuple[float, float]]]]:
     P = _heal_polygon(P)
     best = None
     for deg in angle_candidates:
@@ -192,7 +206,13 @@ def _solve_alpha_line(
             r_big = 0.0
             r_small = 0.0
         score = abs(r_big - r_small)
-        if (best is None) or (score < best[0]) or (math.isclose(score, best[0]) and abs(aS - alpha*P.area) < abs(best[3] - alpha*P.area)):
+        if best is None or (
+            score < best[0]
+            or (
+                math.isclose(score, best[0])
+                and abs(aS - alpha * P.area) < abs(best[3] - alpha * P.area)
+            )
+        ):
             best = (score, theta, c, aS, chord)
     if best is None:
         return None
@@ -204,13 +224,15 @@ def _angle_grid(step_deg: int = ANGLE_DEG_STEP) -> List[float]:
     return [float(d) for d in range(0, 180, step_deg)]
 
 
-# -------------------- Sliver-avoid & validation --------------------
 def _small_area(P: Polygon, theta: float, c: float) -> float:
     aS, _, _, _ = _split_by_line(P, theta, c)
     return aS
 
-def _nudge_c_to_avoid_sliver(P: Polygon, theta: float, c: float, min_small_area: float) -> float:
-    (xmin, ymin, xmax, ymax) = P.bounds
+
+def _nudge_c_to_avoid_sliver(
+    P: Polygon, theta: float, c: float, min_small_area: float
+) -> float:
+    xmin, ymin, xmax, ymax = P.bounds
     step = 0.01 * ((xmax - xmin) + (ymax - ymin))
     best_c = c
     best_a = _small_area(P, theta, c)
@@ -273,8 +295,15 @@ def _apply_validated_cut(
 
     parts = _split_by_chord(P, ((pa.x, pa.y), (pb.x, pb.y)))
     if len(parts) < 2:
-        parts = [g for g in getattr(sh_split(P, LineString([(pa.x, pa.y), (pb.x, pb.y)])), "geoms", [])
-                 if isinstance(g, Polygon) and g.area > 1e-10]
+        parts = [
+            g
+            for g in getattr(
+                sh_split(P, LineString([(pa.x, pa.y), (pb.x, pb.y)])),
+                "geoms",
+                [],
+            )
+            if isinstance(g, Polygon) and g.area > 1e-10
+        ]
     if len(parts) < 2:
         return None
 
@@ -380,7 +409,11 @@ def _plan_piece(
         totalA = sum(g.area for g in remainders)
         counts = [int(round(rem * (g.area / totalA))) for g in remainders]
         diff = rem - sum(counts)
-        order = sorted(range(len(remainders)), key=lambda i: remainders[i].area, reverse=True)
+        order = sorted(
+            range(len(remainders)),
+            key=lambda i: remainders[i].area,
+            reverse=True,
+        )
         idx = 0
         while diff != 0 and order:
             j = order[idx % len(order)]
@@ -422,7 +455,9 @@ class Player1(Player):
         ext = getattr(self.cake, "exterior_shape", None)
         if isinstance(ext, Polygon):
             return _heal_polygon(ext)
-        if hasattr(self.cake, "get_boundary_points") and callable(self.cake.get_boundary_points):
+        if hasattr(self.cake, "get_boundary_points") and callable(
+            self.cake.get_boundary_points,
+        ):
             pts = _as_points(self.cake.get_boundary_points())
             if len(pts) >= 3:
                 if pts[0] == pts[-1]:
@@ -440,8 +475,7 @@ class Player1(Player):
 
         cuts: List[Tuple[ShyPoint, ShyPoint]] = []
         unit = P0.area / n
-        cake_sim = self.cake.copy()   # use this to score ratios & validate
-
+        cake_sim = self.cake.copy()
         _plan_piece(P0, n, unit, cuts, cake_sim)
 
         if len(cuts) > n - 1:
