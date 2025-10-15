@@ -23,10 +23,12 @@ class Player3(Player):
         remaining_children = self.children
 
         while remaining_children > 1:
+            print(f"=========================================================")
             print(f"Remaining children: {remaining_children}")
 
             largest_piece = max(working_cake.get_pieces(), key=lambda piece: piece.area)
             # If this is the first cut, let's try to cut in as close to half as possible
+            print(f"Largest piece area: {largest_piece}")
             if remaining_children == self.children:
                 potential_ratios = [
                     i / remaining_children
@@ -34,7 +36,8 @@ class Player3(Player):
                 ]
                 target_ratio = max(potential_ratios)
             else:
-                target_ratio = 1.0 / self.children
+                #Cut one piece at a time
+                target_ratio = self.target_area / largest_piece.area
 
             best_cut = self._find_best_cut_for_piece(
                 working_cake, largest_piece, target_ratio
@@ -44,45 +47,102 @@ class Player3(Player):
                 break
 
             cuts.append(best_cut)
+            print(f"Cutting at: {best_cut[0]}, {best_cut[1]}")
             working_cake.cut(best_cut[0], best_cut[1])
+            # print("Cake pieces", working_cake.get_pieces())
+            print("Piece areas", [p.area for p in working_cake.get_pieces()])
             remaining_children -= 1
 
         return cuts
 
     def _bucket_cutting_strategy(self) -> list[tuple[Point, Point]]:
-        """Bucket cutting algorithm."""
+        """Main bucket cutting algorithm using recursive splitting (area fairness only)."""
         cuts = []
-        working_cake = self.cake.copy()
-        remaining_children = self.children
-
-        while remaining_children > 1:
-            print(f"Remaining children: {remaining_children}")
-
-            largest_piece = max(working_cake.get_pieces(), key=lambda piece: piece.area)
-
-            # Lets try all of the possible ratios, prioritizing the largest first
-            potential_ratios = [
-                i / remaining_children for i in range(1, (remaining_children // 2) + 1)
-            ]
-            potential_ratios.sort(reverse=True)
-            best_cut = None
-            for target_ratio in potential_ratios:
-                best_cut = self._find_best_cut_for_piece(
-                    working_cake, largest_piece, target_ratio
-                )
-                if best_cut is not None:
-                    break  # Found a valid cut, exit the loop
-
-            if best_cut is None:
-                # Could not find a cut for any ratio
-                print("No valid cut found for any ratio, stopping.")
-                break
-
-            cuts.append(best_cut)
-            working_cake.cut(best_cut[0], best_cut[1])
-            remaining_children -= 1
-
+        largest_piece = max(self.cake.get_pieces(), key=lambda piece: piece.area)
+        self._recursive_bucket_cut(self.cake, largest_piece, self.children, cuts)
         return cuts
+
+    def _recursive_bucket_cut(
+        self, full_cake, cake_piece, num_children: int, cuts: list[tuple[Point, Point]]
+    ):
+        """Recursively divide a cake piece for a given number of children based on area fairness."""
+        if num_children <= 1:
+            return
+
+        working_cake = full_cake.copy()
+        # Only need to test up to half since ratios > 0.5 are symmetric
+        potential_ratios = [i / num_children for i in range(1, (num_children // 2) + 1)]
+        potential_ratios.sort(reverse=True)
+        best_cut = None
+        best_ratio_diff = float("inf")
+        best_split = None
+        best_ratio = None
+        print("=======================================================")
+        print("Current Piece Area:", cake_piece.area)
+        print("Potential Ratios for this piece:", potential_ratios)
+        print("Number of Children for this piece:", num_children)
+
+        for ratio in potential_ratios:
+            # Get the largets piece each iteration
+            print("Current Ratio: ", ratio)
+            cut = self._find_best_cut_for_piece(working_cake, cake_piece, ratio)
+            print("Is there a cut for RATIO:", ratio, "| CUT:", cut)
+            if cut is None:
+                continue
+
+            split_pieces = working_cake.cut_piece(cake_piece, cut[0], cut[1])
+            if len(split_pieces) != 2:
+                # Likely the lsa
+                best_cut = cut
+                continue
+
+            # Compute the absolute difference from target area ratio
+            areas = [piece.area for piece in split_pieces]
+            print("This is the ", ratio, "ratio best cut area split ", areas)
+
+            ratios = [working_cake.get_piece_ratio(piece) for piece in split_pieces]
+            ratio_diffs = [abs(ratio - self.original_ratio) for ratio in ratios]
+            ratio_diff = min(ratio_diffs)
+
+            if ratio_diff < best_ratio_diff:
+                best_ratio_diff = ratio_diff
+                best_cut = cut
+                best_split = split_pieces
+                best_ratio = ratio
+
+        if best_cut is None:
+            print("No valid cut found for any ratio, stopping.")
+            return
+        
+        # Assign children proportional to the chosen ratio
+        left_children = int(round(best_split[0].area / self.target_area))
+        right_children = num_children - left_children
+        print("left children: ", left_children)
+        print("right children: ", right_children)
+
+
+        # Record the chosen cut
+        cuts.append(best_cut)
+        areas = [piece.area for piece in best_split]
+        working_cake.cut(best_cut[0], best_cut[1])
+        print("BEST CUT ", best_cut, " and AREA: ", areas, "| RATIO: ", best_ratio)
+
+        
+        # Recursively cut each subpiece
+        self._recursive_bucket_cut(working_cake, best_split[0], left_children, cuts)
+        # make cuts from the left piece for the working cake using cuts
+        print("Working Cake Pieces", working_cake.get_pieces())
+        
+        #If valid cut, cut the working cake (So update the left half to the right half)
+        for cut in cuts:
+            not_already_cut, _ = working_cake.cut_is_valid(cut[0], cut[1])
+            if not_already_cut:
+                working_cake.cut(cut[0], cut[1])
+        
+        set_pieces = working_cake.get_pieces()        
+        print("Working Cake Areas", [p.area for p in set_pieces])
+
+        self._recursive_bucket_cut(working_cake, best_split[1], right_children, cuts)
 
     def _find_best_cut_for_piece(
         self, cake: Cake, piece, desired_cut_ratio: float
@@ -93,7 +153,8 @@ class Player3(Player):
         valid_cuts = find_valid_cuts_binary_search(
             cake,
             perimeter_points,
-            self.target_area * self.children * desired_cut_ratio,
+            #self.target_area * self.children * desired_cut_ratio,
+            piece.area * desired_cut_ratio,
             self.original_ratio,
         )
 
