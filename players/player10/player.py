@@ -2,7 +2,7 @@ from shapely.geometry import LineString, Point, Polygon
 import math
 import random
 import time
-from statistics import stdev
+from statistics import stdev, StatisticsError
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -356,8 +356,10 @@ class Player10(Player):
         target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
         print(f"TARGET AREA: {target_area:.2f} cm²")
         print(f"TARGET CRUST RATIO: {target_ratio:.3f}")
-        print(f"Strategy: Greedy cutting with hybrid sampling (uniform first, then random)")
-        print(f"Sampling mode: uniform (first) → random (subsequent)")
+        print(
+            "Strategy: Greedy cutting with hybrid sampling (uniform first, then random)"
+        )
+        print("Sampling mode: uniform (first) → random (subsequent)")
         print()
 
         return self._get_cuts_with_retry(target_area, target_ratio)
@@ -374,10 +376,12 @@ class Player10(Player):
         # Check ratio variance if we have multiple ratios
         if len(ratios) > 1:
             try:
-                ratio_variance = stdev(ratios) * 100  # Scale to match evaluation display
+                ratio_variance = (
+                    stdev(ratios) * 100
+                )  # Scale to match evaluation display
                 if ratio_variance > RATIO_VARIANCE_THRESHOLD:
                     return False
-            except:
+            except (StatisticsError, ValueError, TypeError):
                 # If stdev fails, check if all ratios are within acceptable range (scaled)
                 ratio_range = (max(ratios) - min(ratios)) * 100
                 if ratio_range > RATIO_VARIANCE_THRESHOLD:
@@ -385,7 +389,9 @@ class Player10(Player):
 
         return True
 
-    def _get_cuts_with_retry(self, target_area: float, target_ratio: float) -> list[tuple[Point, Point]]:
+    def _get_cuts_with_retry(
+        self, target_area: float, target_ratio: float
+    ) -> list[tuple[Point, Point]]:
         """Main cutting logic with retry mechanism and decaying computation ratio."""
         start_time = time.time()
         current_computation_ratio = COMPUTATION_RATIO
@@ -406,7 +412,9 @@ class Player10(Player):
             attempt += 1
             round_start_time = time.time()
             print(f"\n{'=' * 60}")
-            print(f"ATTEMPT {attempt}/{self.max_repeat_times} - Computation Ratio: {current_computation_ratio}, Processes: {current_num_processes}")
+            print(
+                f"ATTEMPT {attempt}/{self.max_repeat_times} - Computation Ratio: {current_computation_ratio}, Processes: {current_num_processes}"
+            )
             print(f"{'=' * 60}")
 
             # Set different random seed for each attempt
@@ -418,9 +426,15 @@ class Player10(Player):
                 base_phrase_two = PHRASE_TWO_TOTAL_ATTEMPS // (self.children - 1)
                 base_phrase_three = PHRASE_THREE_TOTAL_ATTEMPS // (self.children - 1)
 
-                self.phrase_one_attempts = int(base_phrase_one * current_computation_ratio / COMPUTATION_RATIO)
-                self.phrase_two_attempts = int(base_phrase_two * current_computation_ratio / COMPUTATION_RATIO)
-                self.phrase_three_attempts = int(base_phrase_three * current_computation_ratio / COMPUTATION_RATIO)
+                self.phrase_one_attempts = int(
+                    base_phrase_one * current_computation_ratio / COMPUTATION_RATIO
+                )
+                self.phrase_two_attempts = int(
+                    base_phrase_two * current_computation_ratio / COMPUTATION_RATIO
+                )
+                self.phrase_three_attempts = int(
+                    base_phrase_three * current_computation_ratio / COMPUTATION_RATIO
+                )
 
                 # Ensure minimum attempts
                 self.phrase_one_attempts = max(10, self.phrase_one_attempts)
@@ -428,11 +442,15 @@ class Player10(Player):
                 self.phrase_three_attempts = max(5, self.phrase_three_attempts)
 
                 # Run the algorithm
-                all_cuts = self._greedy_ratio_angle_cutting(target_area, target_ratio, current_num_processes, attempt == 1)
+                all_cuts = self._greedy_ratio_angle_cutting(
+                    target_area, target_ratio, current_num_processes, attempt == 1
+                )
 
                 # Check if we got a complete result
                 if len(all_cuts) < self.children - 1:
-                    print(f"Incomplete result: got {len(all_cuts)} cuts, need {self.children - 1}")
+                    print(
+                        f"Incomplete result: got {len(all_cuts)} cuts, need {self.children - 1}"
+                    )
                     # Still add incomplete results to the list for potential selection
                     all_results.append((all_cuts, [], [], float("inf"), float("inf")))
 
@@ -442,18 +460,41 @@ class Player10(Player):
                     time_threshold = self.mini_time - current_elapsed_time
 
                     if current_elapsed_time > TIME_LIMIT_SECONDS:
-                        print(f"⏰ TIMEOUT after {current_elapsed_time:.1f}s during incomplete result, selecting best result...")
-                        return self._select_best_result(all_results) if all_results else all_cuts
-                    elif attempt >= self.max_repeat_times and current_computation_ratio <= MIN_COMPUTATION_RATIO:
-                        print("Max attempts reached and minimum computation ratio reached, selecting best result...")
-                        return self._select_best_result(all_results) if all_results else all_cuts
+                        print(
+                            f"⏰ TIMEOUT after {current_elapsed_time:.1f}s during incomplete result, selecting best result..."
+                        )
+                        return (
+                            self._select_best_result(all_results)
+                            if all_results
+                            else all_cuts
+                        )
+                    elif (
+                        attempt >= self.max_repeat_times
+                        and current_computation_ratio <= MIN_COMPUTATION_RATIO
+                    ):
+                        print(
+                            "Max attempts reached and minimum computation ratio reached, selecting best result..."
+                        )
+                        return (
+                            self._select_best_result(all_results)
+                            if all_results
+                            else all_cuts
+                        )
                     elif round_time >= time_threshold:
                         # Current round took too long even with incomplete result, decay computation ratio for next round
-                        print(f"Incomplete round took {round_time:.1f}s >= threshold {time_threshold:.1f}s, decaying computation ratio")
+                        print(
+                            f"Incomplete round took {round_time:.1f}s >= threshold {time_threshold:.1f}s, decaying computation ratio"
+                        )
                         old_ratio = current_computation_ratio
-                        current_computation_ratio = max(MIN_COMPUTATION_RATIO, current_computation_ratio / 2)
+                        current_computation_ratio = max(
+                            MIN_COMPUTATION_RATIO, current_computation_ratio / 2
+                        )
                         # Decay processes only when computation ratio decays by factor of 4
-                        if old_ratio >= original_computation_ratio / 2 and current_computation_ratio < original_computation_ratio / 4:
+                        if (
+                            old_ratio >= original_computation_ratio / 2
+                            and current_computation_ratio
+                            < original_computation_ratio / 4
+                        ):
                             current_num_processes = max(1, current_num_processes // 2)
                     # Otherwise, keep same computation ratio for next round
 
@@ -475,56 +516,87 @@ class Player10(Player):
                     if len(ratios) > 1:
                         try:
                             ratio_variance_scaled = stdev(ratios) * 100
-                        except:
+                        except (StatisticsError, ValueError, TypeError):
                             ratio_variance_scaled = (max(ratios) - min(ratios)) * 100
 
                     # Store this result
-                    all_results.append((all_cuts, areas, ratios, size_span, ratio_variance_scaled))
+                    all_results.append(
+                        (all_cuts, areas, ratios, size_span, ratio_variance_scaled)
+                    )
 
                     # Print result quality info
                     if self._is_result_good_enough(areas, ratios):
                         current_elapsed_time = time.time() - start_time
                         if current_elapsed_time > self.mini_time:
-                            print(f"✓ Good result found after mini_time ({current_elapsed_time:.1f}s > {self.mini_time}s), returning immediately!")
+                            print(
+                                f"✓ Good result found after mini_time ({current_elapsed_time:.1f}s > {self.mini_time}s), returning immediately!"
+                            )
                             return all_cuts
                         else:
-                            print(f"✓ Good result found before mini_time on attempt {attempt} (continuing to explore...)")
+                            print(
+                                f"✓ Good result found before mini_time on attempt {attempt} (continuing to explore...)"
+                            )
                     else:
                         print(f"✗ Result not good enough on attempt {attempt}")
 
-                    print(f"  Size span: {size_span:.2f} (threshold: {SIZE_SPAN_THRESHOLD})")
-                    print(f"  Ratio variance: {ratio_variance_scaled:.2f} (threshold: {RATIO_VARIANCE_THRESHOLD})")
+                    print(
+                        f"  Size span: {size_span:.2f} (threshold: {SIZE_SPAN_THRESHOLD})"
+                    )
+                    print(
+                        f"  Ratio variance: {ratio_variance_scaled:.2f} (threshold: {RATIO_VARIANCE_THRESHOLD})"
+                    )
 
                     # Check if we found a perfect result (both metrics are 0.00)
                     size_span_rounded = round(size_span, 2)
                     ratio_variance_rounded = round(ratio_variance_scaled, 2)
-                    print(f"DEBUG: size_span={size_span:.6f} -> {size_span_rounded}, ratio_variance={ratio_variance_scaled:.6f} -> {ratio_variance_rounded}")
+                    print(
+                        f"DEBUG: size_span={size_span:.6f} -> {size_span_rounded}, ratio_variance={ratio_variance_scaled:.6f} -> {ratio_variance_rounded}"
+                    )
 
                     if size_span_rounded == 0.00 and ratio_variance_rounded == 0.00:
                         current_elapsed_time = time.time() - start_time
                         if current_elapsed_time > self.mini_time:
-                            print(f"🎯 PERFECT result found after mini_time! Returning immediately!")
+                            print(
+                                "🎯 PERFECT result found after mini_time! Returning immediately!"
+                            )
                             return all_cuts
                         else:
-                            print(f"🎯 PERFECT result found before mini_time on attempt {attempt} (continuing to explore...)")
+                            print(
+                                f"🎯 PERFECT result found before mini_time on attempt {attempt} (continuing to explore...)"
+                            )
                     # Continue exploring for non-perfect results
 
                     # Time-based computation ratio decay logic
                     round_time = time.time() - round_start_time
                     time_threshold = self.mini_time - current_elapsed_time
                     if current_elapsed_time > TIME_LIMIT_SECONDS:
-                        print(f"⏰ TIMEOUT after {current_elapsed_time:.1f}s, selecting best result...")
+                        print(
+                            f"⏰ TIMEOUT after {current_elapsed_time:.1f}s, selecting best result..."
+                        )
                         return self._select_best_result(all_results)
-                    elif attempt >= self.max_repeat_times and current_computation_ratio <= MIN_COMPUTATION_RATIO:
-                        print("Max attempts reached and minimum computation ratio reached, selecting best result...")
+                    elif (
+                        attempt >= self.max_repeat_times
+                        and current_computation_ratio <= MIN_COMPUTATION_RATIO
+                    ):
+                        print(
+                            "Max attempts reached and minimum computation ratio reached, selecting best result..."
+                        )
                         return self._select_best_result(all_results)
                     elif round_time >= time_threshold:
                         # Current round took too long, decay computation ratio for next round
-                        print(f"Round took {round_time:.1f}s >= threshold {time_threshold:.1f}s, decaying computation ratio")
+                        print(
+                            f"Round took {round_time:.1f}s >= threshold {time_threshold:.1f}s, decaying computation ratio"
+                        )
                         old_ratio = current_computation_ratio
-                        current_computation_ratio = max(MIN_COMPUTATION_RATIO, current_computation_ratio / 2)
+                        current_computation_ratio = max(
+                            MIN_COMPUTATION_RATIO, current_computation_ratio / 2
+                        )
                         # Decay processes only when computation ratio decays by factor of 4
-                        if old_ratio >= original_computation_ratio / 2 and current_computation_ratio < original_computation_ratio / 4:
+                        if (
+                            old_ratio >= original_computation_ratio / 2
+                            and current_computation_ratio
+                            < original_computation_ratio / 4
+                        ):
                             current_num_processes = max(1, current_num_processes // 2)
                     # Otherwise, keep same computation ratio for next round
 
@@ -542,18 +614,37 @@ class Player10(Player):
                     time_threshold = self.mini_time - error_elapsed_time
 
                     if error_elapsed_time > TIME_LIMIT_SECONDS:
-                        print(f"⏰ TIMEOUT after {error_elapsed_time:.1f}s during error, selecting best result...")
-                        return self._select_best_result(all_results) if all_results else []
-                    elif attempt >= self.max_repeat_times and current_computation_ratio <= MIN_COMPUTATION_RATIO:
-                        print("Max attempts reached and minimum computation ratio reached, selecting best result...")
-                        return self._select_best_result(all_results) if all_results else []
+                        print(
+                            f"⏰ TIMEOUT after {error_elapsed_time:.1f}s during error, selecting best result..."
+                        )
+                        return (
+                            self._select_best_result(all_results) if all_results else []
+                        )
+                    elif (
+                        attempt >= self.max_repeat_times
+                        and current_computation_ratio <= MIN_COMPUTATION_RATIO
+                    ):
+                        print(
+                            "Max attempts reached and minimum computation ratio reached, selecting best result..."
+                        )
+                        return (
+                            self._select_best_result(all_results) if all_results else []
+                        )
                     elif round_time >= time_threshold:
                         # Current round took too long even with error, decay computation ratio for next round
-                        print(f"Round with error took {round_time:.1f}s >= threshold {time_threshold:.1f}s, decaying computation ratio")
+                        print(
+                            f"Round with error took {round_time:.1f}s >= threshold {time_threshold:.1f}s, decaying computation ratio"
+                        )
                         old_ratio = current_computation_ratio
-                        current_computation_ratio = max(MIN_COMPUTATION_RATIO, current_computation_ratio / 2)
+                        current_computation_ratio = max(
+                            MIN_COMPUTATION_RATIO, current_computation_ratio / 2
+                        )
                         # Decay processes only when computation ratio decays by factor of 4
-                        if old_ratio >= original_computation_ratio / 2 and current_computation_ratio < original_computation_ratio / 4:
+                        if (
+                            old_ratio >= original_computation_ratio / 2
+                            and current_computation_ratio
+                            < original_computation_ratio / 4
+                        ):
                             current_num_processes = max(1, current_num_processes // 2)
                     # Otherwise, keep same computation ratio for next round
 
@@ -570,18 +661,32 @@ class Player10(Player):
                 time_threshold = self.mini_time - algorithm_error_elapsed_time
 
                 if algorithm_error_elapsed_time > TIME_LIMIT_SECONDS:
-                    print(f"⏰ TIMEOUT after {algorithm_error_elapsed_time:.1f}s during algorithm error, selecting best result...")
+                    print(
+                        f"⏰ TIMEOUT after {algorithm_error_elapsed_time:.1f}s during algorithm error, selecting best result..."
+                    )
                     return self._select_best_result(all_results) if all_results else []
-                elif attempt >= self.max_repeat_times and current_computation_ratio <= MIN_COMPUTATION_RATIO:
-                    print("Max attempts reached and minimum computation ratio reached, selecting best result...")
+                elif (
+                    attempt >= self.max_repeat_times
+                    and current_computation_ratio <= MIN_COMPUTATION_RATIO
+                ):
+                    print(
+                        "Max attempts reached and minimum computation ratio reached, selecting best result..."
+                    )
                     return self._select_best_result(all_results) if all_results else []
                 elif round_time >= time_threshold:
                     # Current round took too long even with error, decay computation ratio for next round
-                    print(f"Round with error took {round_time:.1f}s >= threshold {time_threshold:.1f}s, decaying computation ratio")
+                    print(
+                        f"Round with error took {round_time:.1f}s >= threshold {time_threshold:.1f}s, decaying computation ratio"
+                    )
                     old_ratio = current_computation_ratio
-                    current_computation_ratio = max(MIN_COMPUTATION_RATIO, current_computation_ratio / 2)
+                    current_computation_ratio = max(
+                        MIN_COMPUTATION_RATIO, current_computation_ratio / 2
+                    )
                     # Decay processes only when computation ratio decays by factor of 4
-                    if old_ratio >= original_computation_ratio / 2 and current_computation_ratio < original_computation_ratio / 4:
+                    if (
+                        old_ratio >= original_computation_ratio / 2
+                        and current_computation_ratio < original_computation_ratio / 4
+                    ):
                         current_num_processes = max(1, current_num_processes // 2)
                 # Otherwise, keep same computation ratio for next round
 
@@ -590,10 +695,14 @@ class Player10(Player):
         # Final timeout check before selecting best result
         final_elapsed_time = time.time() - start_time
         if final_elapsed_time > TIME_LIMIT_SECONDS:
-            print(f"⏰ TIMEOUT after {final_elapsed_time:.1f}s at end, selecting best result...")
+            print(
+                f"⏰ TIMEOUT after {final_elapsed_time:.1f}s at end, selecting best result..."
+            )
             return self._select_best_result(all_results) if all_results else []
 
-        print(f"Max attempts ({self.max_repeat_times}) reached, selecting best result...")
+        print(
+            f"Max attempts ({self.max_repeat_times}) reached, selecting best result..."
+        )
         return self._select_best_result(all_results) if all_results else []
 
     def _select_best_result(self, all_results):
@@ -602,7 +711,9 @@ class Player10(Player):
             return []
 
         # Filter out incomplete/failed results (empty cuts)
-        complete_results = [result for result in all_results if result[0]]  # cuts is not empty
+        complete_results = [
+            result for result in all_results if result[0]
+        ]  # cuts is not empty
 
         if not complete_results:
             # If all results are incomplete, return the first one anyway
@@ -621,23 +732,35 @@ class Player10(Player):
 
         # First priority: results with valid size span, choose minimum ratio variance
         if valid_size_span_results:
-            best_result = min(valid_size_span_results, key=lambda x: x[4])  # Sort by ratio_variance_scaled
+            best_result = min(
+                valid_size_span_results, key=lambda x: x[4]
+            )  # Sort by ratio_variance_scaled
             cuts, areas, ratios, size_span, ratio_variance_scaled = best_result
-            print(f"Selected best result: size_span={size_span:.2f}, ratio_variance={ratio_variance_scaled:.2f}")
+            print(
+                f"Selected best result: size_span={size_span:.2f}, ratio_variance={ratio_variance_scaled:.2f}"
+            )
             return cuts
 
         # Second priority: if no valid size span, use minimum size span (original scoring)
         if invalid_size_span_results:
-            best_result = min(invalid_size_span_results, key=lambda x: x[3])  # Sort by size_span
+            best_result = min(
+                invalid_size_span_results, key=lambda x: x[3]
+            )  # Sort by size_span
             cuts, areas, ratios, size_span, ratio_variance_scaled = best_result
-            print(f"No valid size span found, selected minimum size span: {size_span:.2f}")
+            print(
+                f"No valid size span found, selected minimum size span: {size_span:.2f}"
+            )
             return cuts
 
         # This shouldn't happen, but fallback to first complete result
         return complete_results[0][0]
 
     def _greedy_ratio_angle_cutting(
-        self, target_area: float, target_ratio: float, num_processes: int = 8, is_first_attempt: bool = True
+        self,
+        target_area: float,
+        target_ratio: float,
+        num_processes: int = 8,
+        is_first_attempt: bool = True,
     ) -> list[tuple[Point, Point]]:
         """
         TRUE divide-and-conquer approach:
@@ -804,13 +927,15 @@ class Player10(Player):
                     phase2_angles = [
                         i * angle_step for i in range(self.phrase_two_attempts)
                     ]
-                    print(f"    Using uniform sampling mode for first attempt ({angle_step:.1f}° steps)")
+                    print(
+                        f"    Using uniform sampling mode for first attempt ({angle_step:.1f}° steps)"
+                    )
                 else:
                     # Subsequent attempts: use random sampling
                     phase2_angles = [
                         random.uniform(0, 360) for _ in range(self.phrase_two_attempts)
                     ]
-                    print(f"    Using random sampling mode (0-360° range)")
+                    print("    Using random sampling mode (0-360° range)")
 
                 # Process Phase 2 attempts concurrently
                 phase2_attempts_to_try = [
@@ -818,9 +943,7 @@ class Player10(Player):
                 ]
 
                 # Split phase 2 attempts into batches for each process
-                batch_size = max(
-                    1, len(phase2_attempts_to_try) // num_processes
-                )
+                batch_size = max(1, len(phase2_attempts_to_try) // num_processes)
                 batches = [
                     phase2_attempts_to_try[i : i + batch_size]
                     for i in range(0, len(phase2_attempts_to_try), batch_size)
@@ -907,9 +1030,7 @@ class Player10(Player):
                 ]
 
                 # Split phase 3 attempts into batches for each process
-                batch_size = max(
-                    1, len(phase3_attempts_to_try) // num_processes
-                )
+                batch_size = max(1, len(phase3_attempts_to_try) // num_processes)
                 batches = [
                     phase3_attempts_to_try[i : i + batch_size]
                     for i in range(0, len(phase3_attempts_to_try), batch_size)
