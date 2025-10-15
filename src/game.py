@@ -192,7 +192,7 @@ class Game:
             if self.args.gui:
                 self.print_overlay_message(msg)
             raise e
-        
+
         if len(moves) != self.args.children - 1:
             msg = f"Player Exception: Invalid amount of cuts. expected {self.args.children - 1}, got {len(moves)}"
             if self.args.gui:

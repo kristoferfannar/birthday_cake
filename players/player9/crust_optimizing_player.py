@@ -131,16 +131,22 @@ class CrustOptimizingPlayer(Player):
         piece1 = split_pieces[0]
         crust_precision_1 = abs(self.cake.get_piece_ratio(piece1) - crust_ratio)
         closest_target_area_1 = min(Area_list, key=lambda a: abs(a - piece1.area))
-        cake_precision_1 = abs(piece1.area - closest_target_area_1) / self.cake.exterior_shape.area
+        cake_precision_1 = (
+            abs(piece1.area - closest_target_area_1) / self.cake.exterior_shape.area
+        )
 
         # Calculate metrics for the second piece
         piece2 = split_pieces[1]
         crust_precision_2 = abs(self.cake.get_piece_ratio(piece2) - crust_ratio)
         closest_target_area_2 = min(Area_list, key=lambda a: abs(a - piece2.area))
-        cake_precision_2 = abs(piece2.area - closest_target_area_2) / self.cake.exterior_shape.area
+        cake_precision_2 = (
+            abs(piece2.area - closest_target_area_2) / self.cake.exterior_shape.area
+        )
 
         # Return the maximum of the two for both cake and crust precision
-        return max(cake_precision_1, cake_precision_2), max(crust_precision_1, crust_precision_2)
+        return max(cake_precision_1, cake_precision_2), max(
+            crust_precision_1, crust_precision_2
+        )
 
     def get_weight(
         self, p1: Point, p2: Point, piece: Polygon, Goal_ratio: float
@@ -201,7 +207,7 @@ class CrustOptimizingPlayer(Player):
         for angle in range(0, 180, self.angle_increment):
             bounds = piece.bounds
             search_range = max(bounds[2] - bounds[0], bounds[3] - bounds[1]) * 2
-            
+
             # Brute-force offsets
             num_offsets = self.offset
             step_size = search_range / num_offsets
@@ -445,30 +451,23 @@ class CrustOptimizingPlayer(Player):
                 best_primary_cut = min(best_line_list, key=lambda x: x[3])
                 f"Primary search found cuts, the best precision ({best_primary_cut[3]:.6f}) is not optimal. Running angle-based fallback."
 
-
-            all_found_cuts = self._find_all_cuts_by_angle(
-                piece, Area_list, crust_ratio
-            )
+            all_found_cuts = self._find_all_cuts_by_angle(piece, Area_list, crust_ratio)
             if all_found_cuts:
                 best_line_list.extend(all_found_cuts)
-                print(
-                    f"angle bash search found {len(all_found_cuts)} suitable cuts."
-                )
+                print(f"angle bash search found {len(all_found_cuts)} suitable cuts.")
             else:
                 print("Angle-based search failed to find a suitable cut.")
-            
-            all_angle_bst_found_cuts = self.Binary_Search(
-                Area_list, piece, crust_ratio
-            )
+
+            all_angle_bst_found_cuts = self.Binary_Search(Area_list, piece, crust_ratio)
             if all_angle_bst_found_cuts:
                 best_line_list.extend(all_angle_bst_found_cuts)
-                #sorted_data = sorted(all_angle_bst_found_cuts, key=lambda x: x[0], reverse=True)
+                # sorted_data = sorted(all_angle_bst_found_cuts, key=lambda x: x[0], reverse=True)
                 print(
                     f"Angle-based binary search found {len(all_angle_bst_found_cuts)} suitable cuts."
                 )
             else:
                 print("Angle-based binary search failed to find a suitable cut.")
-            
+
             if best_line_list:
                 best_line_list.sort(key=lambda x: x[3])
                 bestline = best_line_list[0]
@@ -488,8 +487,12 @@ class CrustOptimizingPlayer(Player):
 
             print(self.num_candidates, self.offset)
             self.num_candidates = self.num_candidates + (450 // self.children)
-            self.offset = max(int(self.offset * ((self.children - 2) / self.children)), 100)
-            self.offset = max(int(self.offset * ((self.children - 2) / self.children)), 100)
+            self.offset = max(
+                int(self.offset * ((self.children - 2) / self.children)), 100
+            )
+            self.offset = max(
+                int(self.offset * ((self.children - 2) / self.children)), 100
+            )
 
             moves.append((bestline[1], bestline[2]))
             self.cake.cut(bestline[1], bestline[2])
