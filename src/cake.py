@@ -180,24 +180,9 @@ class Cake:
 
         return piece, ""
 
-    def cut_is_valid(self, from_p: Point, to_p: Point) -> tuple[bool, str]:
-        """Check whether a cut from `from_p` to `to_p` is valid. For public use to not cause breaking changes
-
-        If invalid, the method returns the reason as the second argument.
-        """
-        line = LineString([from_p, to_p])
-
-        if not self.__cut_is_within_cake(line):
-            return False, "cut is not within cake"
-
-        cuttable_piece, reason = self.get_cuttable_piece(from_p, to_p)
-
-        if not cuttable_piece:
-            return False, reason
-
-        return True, "valid"
-
-    def __cut_is_valid(self, from_p: Point, to_p: Point) -> tuple[bool, str]:
+    def __cut_is_valid(
+        self, from_p: Point, to_p: Point
+    ) -> tuple[bool, str, Polygon | None]:
         """Check whether a cut from `from_p` to `to_p` is valid.
 
         If invalid, the method returns the reason as the second argument.
@@ -205,7 +190,7 @@ class Cake:
         line = LineString([from_p, to_p])
 
         if not self.__cut_is_within_cake(line):
-            return False, "cut is not within cake"
+            return False, "cut is not within cake", None
 
         cuttable_piece, reason = self.get_cuttable_piece(from_p, to_p)
 
@@ -213,6 +198,14 @@ class Cake:
             return False, reason, None
 
         return True, "valid", cuttable_piece
+
+    def cut_is_valid(self, from_p: Point, to_p: Point) -> tuple[bool, str]:
+        """Check whether a cut from `from_p` to `to_p` is valid. For public use to not cause breaking changes
+
+        If invalid, the method returns the reason as the second argument.
+        """
+        is_valid, reason, _target_piece = self.__cut_is_valid(from_p, to_p)
+        return is_valid, reason
 
     def does_line_cut_piece_well(self, line: LineString, piece: Polygon):
         """Checks whether line cuts piece in two valid (large enough) pieces"""
