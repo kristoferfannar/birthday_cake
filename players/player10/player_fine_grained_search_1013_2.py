@@ -249,7 +249,7 @@ class Player10(Player):
             cutting_num_children,
             target_area,
             target_ratio,
-            phase
+            phase,
         ) = args
 
         remaining_children = cutting_num_children - split_children
@@ -290,30 +290,40 @@ class Player10(Player):
         score = size_error * 3.0 + ratio_error * 1.0
 
         return {
-            'score': score,
-            'cut_points': (from_p, to_p),
-            'small_piece': small_piece,
-            'large_piece': large_piece,
-            'ratio1': ratio1,
-            'ratio2': ratio2,
-            'angle': angle,
-            'split_children': split_children,
-            'remaining_children': remaining_children,
-            'size_error': size_error,
-            'ratio_error': ratio_error
+            "score": score,
+            "cut_points": (from_p, to_p),
+            "small_piece": small_piece,
+            "large_piece": large_piece,
+            "ratio1": ratio1,
+            "ratio2": ratio2,
+            "angle": angle,
+            "split_children": split_children,
+            "remaining_children": remaining_children,
+            "size_error": size_error,
+            "ratio_error": ratio_error,
         }
 
-    def _process_batch(self, batch_args, cutting_piece, cutting_num_children, target_area, target_ratio):
+    def _process_batch(
+        self, batch_args, cutting_piece, cutting_num_children, target_area, target_ratio
+    ):
         """Process a batch of attempts and return the best result"""
         best_result = None
         best_score = float("inf")
 
         for args in batch_args:
-            result = self._evaluate_attempt((
-                args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
-            ))
-            if result and result['score'] < best_score:
-                best_score = result['score']
+            result = self._evaluate_attempt(
+                (
+                    args[0],
+                    args[1],
+                    cutting_piece,
+                    cutting_num_children,
+                    target_area,
+                    target_ratio,
+                    args[2],
+                )
+            )
+            if result and result["score"] < best_score:
+                best_score = result["score"]
                 best_result = result
 
         return best_result
@@ -417,17 +427,31 @@ class Player10(Player):
                 attempts_to_try.append((split_children, angle, "phase1"))
 
             # Process Phase 1 attempts concurrently
-            print(f"  Phase 1: Processing {len(attempts_to_try)} attempts across {self.num_of_processes} processes...")
+            print(
+                f"  Phase 1: Processing {len(attempts_to_try)} attempts across {self.num_of_processes} processes..."
+            )
 
             # Split attempts into batches for each process
             batch_size = max(1, len(attempts_to_try) // self.num_of_processes)
-            batches = [attempts_to_try[i:i + batch_size] for i in range(0, len(attempts_to_try), batch_size)]
+            batches = [
+                attempts_to_try[i : i + batch_size]
+                for i in range(0, len(attempts_to_try), batch_size)
+            ]
 
             # Use ProcessPoolExecutor for concurrent processing
-            with ProcessPoolExecutor(max_workers=max(1,self.num_of_processes // 4)) as executor:
+            with ProcessPoolExecutor(
+                max_workers=max(1, self.num_of_processes // 4)
+            ) as executor:
                 # Submit all batches
                 future_to_batch = {
-                    executor.submit(self._process_batch, batch, cutting_piece, cutting_num_children, target_area, target_ratio): batch
+                    executor.submit(
+                        self._process_batch,
+                        batch,
+                        cutting_piece,
+                        cutting_num_children,
+                        target_area,
+                        target_ratio,
+                    ): batch
                     for batch in batches
                 }
 
@@ -439,22 +463,25 @@ class Player10(Player):
                             valid_attempts += 1
 
                             # Update best scores
-                            split_children = result['split_children']
-                            if result['score'] < split_ratio_scores[split_children]:
-                                split_ratio_scores[split_children] = result['score']
+                            split_children = result["split_children"]
+                            if result["score"] < split_ratio_scores[split_children]:
+                                split_ratio_scores[split_children] = result["score"]
 
-                            if result['score'] < best_score:
-                                best_score = result['score']
+                            if result["score"] < best_score:
+                                best_score = result["score"]
                                 best_cut = (
-                                    result['cut_points'][0],
-                                    result['cut_points'][1],
-                                    result['small_piece'],
-                                    result['large_piece'],
-                                    result['ratio1'],
-                                    result['ratio2'],
-                                    result['angle'],
+                                    result["cut_points"][0],
+                                    result["cut_points"][1],
+                                    result["small_piece"],
+                                    result["large_piece"],
+                                    result["ratio1"],
+                                    result["ratio2"],
+                                    result["angle"],
                                 )
-                                best_split_ratio = (split_children, result['remaining_children'])
+                                best_split_ratio = (
+                                    split_children,
+                                    result["remaining_children"],
+                                )
 
                     except Exception as e:
                         print(f"    Error in batch processing: {e}")
@@ -481,20 +508,36 @@ class Player10(Player):
 
                 # Generate angles for phase 2
                 angle_step = 360.0 / self.phrase_two_attempts
-                phase2_angles = [i * angle_step for i in range(self.phrase_two_attempts)]
+                phase2_angles = [
+                    i * angle_step for i in range(self.phrase_two_attempts)
+                ]
 
                 # Process Phase 2 attempts concurrently
-                phase2_attempts_to_try = [(best_ratio_from_phase1, angle, "phase2") for angle in phase2_angles]
+                phase2_attempts_to_try = [
+                    (best_ratio_from_phase1, angle, "phase2") for angle in phase2_angles
+                ]
 
                 # Split phase 2 attempts into batches for each process
-                batch_size = max(1, len(phase2_attempts_to_try) // self.num_of_processes)
-                batches = [phase2_attempts_to_try[i:i + batch_size] for i in range(0, len(phase2_attempts_to_try), batch_size)]
+                batch_size = max(
+                    1, len(phase2_attempts_to_try) // self.num_of_processes
+                )
+                batches = [
+                    phase2_attempts_to_try[i : i + batch_size]
+                    for i in range(0, len(phase2_attempts_to_try), batch_size)
+                ]
 
                 # Use ProcessPoolExecutor for concurrent processing
                 with ProcessPoolExecutor(max_workers=self.num_of_processes) as executor:
                     # Submit all batches
                     future_to_batch = {
-                        executor.submit(self._process_batch, batch, cutting_piece, cutting_num_children, target_area, target_ratio): batch
+                        executor.submit(
+                            self._process_batch,
+                            batch,
+                            cutting_piece,
+                            cutting_num_children,
+                            target_area,
+                            target_ratio,
+                        ): batch
                         for batch in batches
                     }
 
@@ -505,18 +548,21 @@ class Player10(Player):
                             if result:
                                 valid_attempts += 1
 
-                                if result['score'] < best_score:
-                                    best_score = result['score']
+                                if result["score"] < best_score:
+                                    best_score = result["score"]
                                     best_cut = (
-                                        result['cut_points'][0],
-                                        result['cut_points'][1],
-                                        result['small_piece'],
-                                        result['large_piece'],
-                                        result['ratio1'],
-                                        result['ratio2'],
-                                        result['angle'],
+                                        result["cut_points"][0],
+                                        result["cut_points"][1],
+                                        result["small_piece"],
+                                        result["large_piece"],
+                                        result["ratio1"],
+                                        result["ratio2"],
+                                        result["angle"],
                                     )
-                                    best_split_ratio = (result['split_children'], result['remaining_children'])
+                                    best_split_ratio = (
+                                        result["split_children"],
+                                        result["remaining_children"],
+                                    )
 
                         except Exception as e:
                             print(f"    Error in phase 2 batch processing: {e}")
@@ -545,23 +591,44 @@ class Player10(Player):
 
                 # Generate fine-grained angles uniformly in the search range
                 if self.phrase_three_attempts > 1:
-                    fine_angle_step = (angle_max - angle_min) / (self.phrase_three_attempts - 1)
-                    phase3_angles = [angle_min + i * fine_angle_step for i in range(self.phrase_three_attempts)]
+                    fine_angle_step = (angle_max - angle_min) / (
+                        self.phrase_three_attempts - 1
+                    )
+                    phase3_angles = [
+                        angle_min + i * fine_angle_step
+                        for i in range(self.phrase_three_attempts)
+                    ]
                 else:
                     phase3_angles = [best_angle]
 
                 # Process Phase 3 attempts concurrently
-                phase3_attempts_to_try = [(best_ratio_from_phase1, angle, "phase3") for angle in phase3_angles]
+                phase3_attempts_to_try = [
+                    (best_ratio_from_phase1, angle, "phase3") for angle in phase3_angles
+                ]
 
                 # Split phase 3 attempts into batches for each process
-                batch_size = max(1, len(phase3_attempts_to_try) // self.num_of_processes)
-                batches = [phase3_attempts_to_try[i:i + batch_size] for i in range(0, len(phase3_attempts_to_try), batch_size)]
+                batch_size = max(
+                    1, len(phase3_attempts_to_try) // self.num_of_processes
+                )
+                batches = [
+                    phase3_attempts_to_try[i : i + batch_size]
+                    for i in range(0, len(phase3_attempts_to_try), batch_size)
+                ]
 
                 # Use ProcessPoolExecutor for concurrent processing
-                with ProcessPoolExecutor(max_workers=max(1,self.num_of_processes // 4)) as executor:
+                with ProcessPoolExecutor(
+                    max_workers=max(1, self.num_of_processes // 4)
+                ) as executor:
                     # Submit all batches
                     future_to_batch = {
-                        executor.submit(self._process_batch, batch, cutting_piece, cutting_num_children, target_area, target_ratio): batch
+                        executor.submit(
+                            self._process_batch,
+                            batch,
+                            cutting_piece,
+                            cutting_num_children,
+                            target_area,
+                            target_ratio,
+                        ): batch
                         for batch in batches
                     }
 
@@ -572,18 +639,21 @@ class Player10(Player):
                             if result:
                                 valid_attempts += 1
 
-                                if result['score'] < best_score:
-                                    best_score = result['score']
+                                if result["score"] < best_score:
+                                    best_score = result["score"]
                                     best_cut = (
-                                        result['cut_points'][0],
-                                        result['cut_points'][1],
-                                        result['small_piece'],
-                                        result['large_piece'],
-                                        result['ratio1'],
-                                        result['ratio2'],
-                                        result['angle'],
+                                        result["cut_points"][0],
+                                        result["cut_points"][1],
+                                        result["small_piece"],
+                                        result["large_piece"],
+                                        result["ratio1"],
+                                        result["ratio2"],
+                                        result["angle"],
                                     )
-                                    best_split_ratio = (result['split_children'], result['remaining_children'])
+                                    best_split_ratio = (
+                                        result["split_children"],
+                                        result["remaining_children"],
+                                    )
 
                         except Exception as e:
                             print(f"    Error in phase 3 batch processing: {e}")
@@ -593,11 +663,11 @@ class Player10(Player):
                     f"    Phase 3 complete. Final best angle: {best_cut[6]:.1f}° with score {best_score:.3f}"
                 )
             else:
-                print(
-                    f"    Best cut found with score {best_score:.3f}"
-                )
+                print(f"    Best cut found with score {best_score:.3f}")
             if best_cut is None:
-                print(f"  No valid cut found after {len(attempts_to_try) + len(phase2_attempts_to_try)} attempts!")
+                print(
+                    f"  No valid cut found after {len(attempts_to_try) + len(phase2_attempts_to_try)} attempts!"
+                )
                 # Put the piece back for now (shouldn't happen often)
                 pieces_queue.append((cutting_piece, cutting_num_children))
                 continue

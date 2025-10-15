@@ -12,13 +12,14 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import split
 from statistics import stdev
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from players.player10.player import Player10
 
+
 class Player10SystematicFast(Player10):
     """Fast systematic multi-stage player that collects multiple solutions with 0.25 cm² tolerance."""
-    
+
     def __init__(
         self,
         children: int,
@@ -29,10 +30,10 @@ class Player10SystematicFast(Player10):
         max_solutions: int = 10,
     ) -> None:
         super().__init__(children, cake, cake_path)
-        
+
         # Use fixed tight tolerance to ensure no piece is more than 0.25 cm² from target
         self.target_area_tolerance = 0.25
-        
+
         # Number of different angles to try
         self.num_angle_attempts = num_angle_attempts
         # Maximum number of valid solutions to collect
@@ -40,7 +41,9 @@ class Player10SystematicFast(Player10):
         # Area span threshold for filtering
         self.area_std_threshold = area_std_threshold
 
-    def binary_search_all_solutions(self, piece: Polygon, target_area: float, angle: float) -> List[float]:
+    def binary_search_all_solutions(
+        self, piece: Polygon, target_area: float, angle: float
+    ) -> List[float]:
         """Binary search that collects ALL positions within 0.25 cm² tolerance."""
         left_pos = 0.0
         right_pos = 1.0
@@ -73,71 +76,89 @@ class Player10SystematicFast(Player10):
 
         return valid_positions
 
-    def evaluate_solution(self, cuts: List[Tuple[Point, Point]], cake_copy) -> Tuple[float, float, float, List[float], List[float]]:
+    def evaluate_solution(
+        self, cuts: List[Tuple[Point, Point]], cake_copy
+    ) -> Tuple[float, float, float, List[float], List[float]]:
         """Evaluate a complete solution and return (area_span, area_std, ratio_variance, areas, ratios)."""
         # Apply all cuts to a copy
         test_cake = cake_copy.copy()
-        
+
         for from_p, to_p in cuts:
             try:
                 test_cake.cut(from_p, to_p)
             except Exception:
-                return float('inf'), float('inf'), float('inf'), [], []
-        
+                return float("inf"), float("inf"), float("inf"), [], []
+
         # Check if we got the right number of pieces
         pieces = test_cake.get_pieces()
         if len(pieces) != self.children:
-            return float('inf'), float('inf'), float('inf'), [], []
-        
+            return float("inf"), float("inf"), float("inf"), [], []
+
         # Calculate areas and ratios
         areas = [p.area for p in pieces]
         ratios = test_cake.get_piece_ratios()
-        
+
         # Calculate area span (max - min)
         area_span = max(areas) - min(areas)
-        
+
         # Calculate area standard deviation
         if len(areas) > 1:
             area_std = stdev(areas)
         else:
             area_std = 0.0
-            
+
         # Calculate ratio variance
         if len(ratios) > 1:
             ratio_variance = stdev(ratios)
         else:
             ratio_variance = 0.0
-            
+
         return area_span, area_std, ratio_variance, areas, ratios
 
-    def generate_multiple_solutions(self, target_area: float, target_ratio: float) -> List[Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]]:
+    def generate_multiple_solutions(
+        self, target_area: float, target_ratio: float
+    ) -> List[
+        Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]
+    ]:
         """Generate multiple solutions using systematic approach with 0.25 cm² tolerance."""
         print(f"=== Generating solutions with 0.25 cm² tolerance ===")
-        
+
         all_solutions = []
         attempts = 0
         max_attempts = self.num_angle_attempts * 3  # More attempts
-        
+
         while len(all_solutions) < self.max_solutions and attempts < max_attempts:
             attempts += 1
-            
+
             # Generate a single solution using the original approach but with tighter tolerance
-            solution = self._generate_single_solution_systematic(target_area, target_ratio)
-            
+            solution = self._generate_single_solution_systematic(
+                target_area, target_ratio
+            )
+
             if solution is None:
                 continue
-                
+
             cuts, area_span, area_std, ratio_variance, areas, ratios = solution
-            
+
             # Check if this solution meets our area span threshold
             if area_span <= self.area_std_threshold:
-                all_solutions.append((cuts, area_span, area_std, ratio_variance, areas, ratios))
-                print(f"  Solution {len(all_solutions)}: area_span={area_span:.3f}, ratio_var={ratio_variance:.4f}")
-        
-        print(f"Generated {len(all_solutions)} valid solutions out of {attempts} attempts")
+                all_solutions.append(
+                    (cuts, area_span, area_std, ratio_variance, areas, ratios)
+                )
+                print(
+                    f"  Solution {len(all_solutions)}: area_span={area_span:.3f}, ratio_var={ratio_variance:.4f}"
+                )
+
+        print(
+            f"Generated {len(all_solutions)} valid solutions out of {attempts} attempts"
+        )
         return all_solutions
 
-    def _generate_single_solution_systematic(self, target_area: float, target_ratio: float) -> Optional[Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]]:
+    def _generate_single_solution_systematic(
+        self, target_area: float, target_ratio: float
+    ) -> Optional[
+        Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]
+    ]:
         """Generate a single solution using systematic approach with 0.25 cm² tolerance."""
         cake_copy = self.cake.copy()
         all_cuts = []
@@ -175,22 +196,24 @@ class Player10SystematicFast(Player10):
             min_split = 1
             max_split = max(1, cutting_num_children // 2)
             split_children = random.randint(min_split, max_split)
-            
+
             remaining_children = cutting_num_children - split_children
             target_cut_area = target_area * split_children
 
             # Try different angles
             angle = random.uniform(0, 180)
-            
+
             # Find ALL valid positions for this angle
-            valid_positions = self.binary_search_all_solutions(cutting_piece, target_cut_area, angle)
-            
+            valid_positions = self.binary_search_all_solutions(
+                cutting_piece, target_cut_area, angle
+            )
+
             if not valid_positions:
                 return None  # No valid positions found
-            
+
             # Choose a random valid position
             position = random.choice(valid_positions)
-            
+
             cut_line = self.find_line(position, cutting_piece, angle)
             cut_points = self.find_cuts(cut_line, cutting_piece)
             if cut_points is None:
@@ -224,13 +247,17 @@ class Player10SystematicFast(Player10):
                 return None
 
         # Evaluate the complete solution
-        area_span, area_std, ratio_variance, areas, ratios = self.evaluate_solution(all_cuts, self.cake)
+        area_span, area_std, ratio_variance, areas, ratios = self.evaluate_solution(
+            all_cuts, self.cake
+        )
         return (all_cuts, area_span, area_std, ratio_variance, areas, ratios)
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """Main cutting logic - systematic approach with 0.25 cm² tolerance."""
         target_area = self.cake.get_area() / self.children
-        target_ratio = self.cake.get_piece_ratios()[0] if self.cake.get_pieces() else 0.5
+        target_ratio = (
+            self.cake.get_piece_ratios()[0] if self.cake.get_pieces() else 0.5
+        )
 
         print(f"__________Systematic Fast Cutting for {self.children} children_______")
         print(f"TARGET AREA: {target_area:.2f} cm²")
@@ -240,23 +267,32 @@ class Player10SystematicFast(Player10):
 
         # Stage 1: Generate multiple solutions
         all_solutions = self.generate_multiple_solutions(target_area, target_ratio)
-        
+
         if not all_solutions:
-            print("No valid solutions found! Falling back to single solution approach...")
+            print(
+                "No valid solutions found! Falling back to single solution approach..."
+            )
             return self._fallback_single_solution(target_area, target_ratio)
-        
+
         # Stage 2: Optimize for best crust ratio among valid solutions
         best_solution = min(all_solutions, key=lambda x: x[3])  # x[3] is ratio_variance
-        
-        best_cuts, best_area_span, best_area_std, best_ratio_variance, best_areas, best_ratios = best_solution
-        
+
+        (
+            best_cuts,
+            best_area_span,
+            best_area_std,
+            best_ratio_variance,
+            best_areas,
+            best_ratios,
+        ) = best_solution
+
         print(f"\nBest solution selected:")
         print(f"  Area span: {best_area_span:.3f} cm²")
         print(f"  Area std dev: {best_area_std:.3f} cm²")
         print(f"  Ratio variance: {best_ratio_variance:.4f}")
         print(f"  Areas: {[f'{a:.2f}' for a in sorted(best_areas)]}")
         print(f"  Ratios: {[f'{r:.3f}' for r in best_ratios]}")
-        
+
         # Final validation
         spec_threshold = 0.5
         print(f"\nFinal validation:")
@@ -266,10 +302,12 @@ class Player10SystematicFast(Player10):
             print(f"  ✓ SPECIFICATION COMPLIANT")
         else:
             print(f"  ⚠️  SPECIFICATION VIOLATION")
-        
+
         return best_cuts
 
-    def _fallback_single_solution(self, target_area: float, target_ratio: float) -> List[Tuple[Point, Point]]:
+    def _fallback_single_solution(
+        self, target_area: float, target_ratio: float
+    ) -> List[Tuple[Point, Point]]:
         """Fallback to the original single-solution approach."""
         print("Using fallback single-solution approach...")
         return super().get_cuts()

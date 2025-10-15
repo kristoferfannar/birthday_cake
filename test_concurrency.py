@@ -10,6 +10,7 @@ import sys
 import os
 from pathlib import Path
 
+
 def run_test(num_processes: int, test_runs: int = 3) -> float:
     """Run the game with specified num_processes and return average execution time."""
 
@@ -19,8 +20,7 @@ def run_test(num_processes: int, test_runs: int = 3) -> float:
 
     # Replace the default num_of_processes value in the constructor
     modified_content = original_content.replace(
-        'num_of_processes: int = 4,',
-        f'num_of_processes: int = {num_processes},'
+        "num_of_processes: int = 4,", f"num_of_processes: int = {num_processes},"
     )
 
     # Write the modified version
@@ -35,9 +35,15 @@ def run_test(num_processes: int, test_runs: int = 3) -> float:
 
         # Run the game command (without GUI for accurate timing)
         cmd = [
-            "uv", "run", "main.py",
-            "--import-cake", "cakes/players/player10/star.csv",
-            "--player", "10", "--children", "10"
+            "uv",
+            "run",
+            "main.py",
+            "--import-cake",
+            "cakes/players/player10/star.csv",
+            "--player",
+            "10",
+            "--children",
+            "10",
         ]
 
         try:
@@ -45,7 +51,7 @@ def run_test(num_processes: int, test_runs: int = 3) -> float:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minute timeout
+                timeout=300,  # 5 minute timeout
             )
 
             end_time = time.time()
@@ -70,10 +76,13 @@ def run_test(num_processes: int, test_runs: int = 3) -> float:
 
     if times:
         avg_time = sum(times) / len(times)
-        print(f"  {num_processes} processes: {avg_time:.2f}s average ({len(times)} runs)")
+        print(
+            f"  {num_processes} processes: {avg_time:.2f}s average ({len(times)} runs)"
+        )
         return avg_time
     else:
         return None
+
 
 def main():
     """Test different num_of_processes values and find the optimal one."""
@@ -87,7 +96,9 @@ def main():
     results = {}
 
     for num_processes in process_counts:
-        avg_time = run_test(num_processes, test_runs=2)  # Reduced to 2 runs for faster testing
+        avg_time = run_test(
+            num_processes, test_runs=2
+        )  # Reduced to 2 runs for faster testing
         if avg_time is not None:
             results[num_processes] = avg_time
 
@@ -111,6 +122,7 @@ def main():
     print(f"OPTIMAL: {best_processes} processes ({best_time:.2f}s)")
     print(f"That's {results[1] / best_time:.2f}x faster than single-threaded")
     print("=" * 60)
+
 
 if __name__ == "__main__":
     main()

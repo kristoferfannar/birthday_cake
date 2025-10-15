@@ -22,22 +22,22 @@ class Player10MultiStage(Player):
         max_solutions: int = 10,  # Maximum number of valid solutions to collect
     ) -> None:
         super().__init__(children, cake, cake_path)
-        
+
         # Calculate adaptive tolerances based on number of children and target area
         self.target_area = cake.get_area() / children
-        
+
         # Use fixed tight tolerance to ensure no piece is more than 0.25 cm² from target
         # This ensures area span requirements are met
         self.target_area_tolerance = 0.25
-        
+
         # Adaptive area std dev threshold: also scales with children
         self.area_std_threshold = area_std_threshold
-        
+
         # Number of different angles to try (more attempts = better for complex shapes)
         self.num_angle_attempts = num_angle_attempts
         # Maximum number of valid solutions to collect in Stage 1
         self.max_solutions = max_solutions
-        
+
         print(f"Adaptive tolerances for {children} children:")
         print(f"  Target area per child: {self.target_area:.2f} cm²")
         print(f"  Binary search tolerance: {self.target_area_tolerance:.3f} cm²")
@@ -245,14 +245,16 @@ class Player10MultiStage(Player):
 
         return best_pos
 
-    def binary_search_all_solutions(self, piece: Polygon, target_area: float, angle: float) -> List[float]:
+    def binary_search_all_solutions(
+        self, piece: Polygon, target_area: float, angle: float
+    ) -> List[float]:
         """Binary search that collects ALL positions within tolerance instead of just the best one.
-        
+
         Args:
             piece: The polygon piece to cut
             target_area: The target area for the cut piece
             angle: Angle in degrees for the cutting line
-            
+
         Returns:
             List of all valid positions within tolerance
         """
@@ -293,112 +295,149 @@ class Player10MultiStage(Player):
 
         return valid_positions
 
-    def evaluate_solution(self, cuts: List[Tuple[Point, Point]], cake_copy: Cake) -> Tuple[float, float, float, List[float], List[float]]:
+    def evaluate_solution(
+        self, cuts: List[Tuple[Point, Point]], cake_copy: Cake
+    ) -> Tuple[float, float, float, List[float], List[float]]:
         """Evaluate a complete solution and return (area_span, area_std, ratio_variance, areas, ratios).
-        
+
         Args:
             cuts: List of cuts to apply
             cake_copy: Cake to test on (will be modified)
-            
+
         Returns:
             Tuple of (area_span, area_std_dev, ratio_variance, areas, ratios)
         """
         # Apply all cuts to a copy
         test_cake = cake_copy.copy()
-        
+
         for from_p, to_p in cuts:
             try:
                 test_cake.cut(from_p, to_p)
             except Exception:
-                return float('inf'), float('inf'), float('inf'), [], []
-        
+                return float("inf"), float("inf"), float("inf"), [], []
+
         # Check if we got the right number of pieces
         pieces = test_cake.get_pieces()
         if len(pieces) != self.children:
-            return float('inf'), float('inf'), float('inf'), [], []
-        
+            return float("inf"), float("inf"), float("inf"), [], []
+
         # Calculate areas and ratios
         areas = [p.area for p in pieces]
         ratios = test_cake.get_piece_ratios()
-        
+
         # Calculate area span (max - min) - this is what the specification uses
         area_span = max(areas) - min(areas)
-        
+
         # Calculate area standard deviation (for comparison)
         if len(areas) > 1:
             area_std = stdev(areas)
         else:
             area_std = 0.0
-            
+
         # Calculate ratio variance (crust ratio variance)
         if len(ratios) > 1:
             ratio_variance = stdev(ratios)
         else:
             ratio_variance = 0.0
-            
+
         return area_span, area_std, ratio_variance, areas, ratios
 
-    def stage1_find_valid_solutions(self, target_area: float, target_ratio: float) -> List[Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]]:
+    def stage1_find_valid_solutions(
+        self, target_area: float, target_ratio: float
+    ) -> List[
+        Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]
+    ]:
         """Stage 1: Systematically find ALL valid solutions using binary search with 0.25 cm² tolerance.
-        
+
         Returns:
             List of (cuts, area_span, area_std, ratio_variance, areas, ratios) tuples
         """
-        print(f"=== STAGE 1: Systematic solution collection with 0.25 cm² tolerance ===")
-        
+        print(
+            f"=== STAGE 1: Systematic solution collection with 0.25 cm² tolerance ==="
+        )
+
         # Use systematic approach to collect all possible solutions
-        all_solutions = self._generate_all_systematic_solutions(target_area, target_ratio)
-        
+        all_solutions = self._generate_all_systematic_solutions(
+            target_area, target_ratio
+        )
+
         # Filter solutions that meet area span threshold
         valid_solutions = []
         for solution in all_solutions:
             cuts, area_span, area_std, ratio_variance, areas, ratios = solution
-            
+
             # Check if this solution meets our area span threshold
             if area_span <= self.area_std_threshold:
-                valid_solutions.append((cuts, area_span, area_std, ratio_variance, areas, ratios))
-                print(f"  Solution {len(valid_solutions)}: area_span={area_span:.3f}, area_std={area_std:.3f}, ratio_var={ratio_variance:.4f}")
-                
+                valid_solutions.append(
+                    (cuts, area_span, area_std, ratio_variance, areas, ratios)
+                )
+                print(
+                    f"  Solution {len(valid_solutions)}: area_span={area_span:.3f}, area_std={area_std:.3f}, ratio_var={ratio_variance:.4f}"
+                )
+
                 # Show piece areas for this solution
                 print(f"    Areas: {[f'{a:.2f}' for a in sorted(areas)]}")
                 print(f"    Ratios: {[f'{r:.3f}' for r in ratios]}")
-        
-        print(f"Stage 1 complete: Found {len(valid_solutions)} valid solutions out of {len(all_solutions)} total solutions")
+
+        print(
+            f"Stage 1 complete: Found {len(valid_solutions)} valid solutions out of {len(all_solutions)} total solutions"
+        )
         return valid_solutions
 
-    def _generate_all_systematic_solutions(self, target_area: float, target_ratio: float) -> List[Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]]:
+    def _generate_all_systematic_solutions(
+        self, target_area: float, target_ratio: float
+    ) -> List[
+        Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]
+    ]:
         """Generate ALL possible solutions using systematic binary search with 0.25 cm² tolerance.
-        
+
         This method explores all possible cut combinations by:
         1. For each cut, finding ALL valid positions within 0.25 cm² tolerance
         2. Systematically exploring combinations of these positions
         3. Collecting all complete solutions that meet the tolerance
         """
         print(f"  Exploring all systematic solutions with 0.25 cm² tolerance...")
-        
+
         all_solutions = []
         cake_copy = self.cake.copy()
-        
+
         # Initialize: the whole cake is for all children
         pieces_queue = [(cake_copy.exterior_shape, self.children)]
-        
+
         # Recursively explore all possible cut combinations
         self._explore_cut_combinations(pieces_queue, [], target_area, all_solutions, 0)
-        
+
         print(f"  Generated {len(all_solutions)} total solutions")
         return all_solutions
 
-    def _explore_cut_combinations(self, pieces_queue: List[Tuple[Polygon, int]], current_cuts: List[Tuple[Point, Point]], 
-                                target_area: float, all_solutions: List, cut_number: int):
+    def _explore_cut_combinations(
+        self,
+        pieces_queue: List[Tuple[Polygon, int]],
+        current_cuts: List[Tuple[Point, Point]],
+        target_area: float,
+        all_solutions: List,
+        cut_number: int,
+    ):
         """Recursively explore all possible cut combinations."""
-        
+
         # Base case: if we have enough pieces for all children
         if len(pieces_queue) == self.children:
             # Evaluate this complete solution
-            area_span, area_std, ratio_variance, areas, ratios = self.evaluate_solution(current_cuts, self.cake)
-            all_solutions.append((current_cuts.copy(), area_span, area_std, ratio_variance, areas, ratios))
+            area_span, area_std, ratio_variance, areas, ratios = self.evaluate_solution(
+                current_cuts, self.cake
+            )
+            all_solutions.append(
+                (
+                    current_cuts.copy(),
+                    area_span,
+                    area_std,
+                    ratio_variance,
+                    areas,
+                    ratios,
+                )
+            )
             return
-        
+
         # Find a piece that needs to be divided (num_children > 1)
         cutting_piece = None
         cutting_num_children = 0
@@ -436,8 +475,10 @@ class Player10MultiStage(Player):
             # Try different angles
             for angle in range(0, 180, 10):  # Try every 10 degrees
                 # Find ALL valid positions for this angle
-                valid_positions = self.binary_search_all_solutions(cutting_piece, target_cut_area, angle)
-                
+                valid_positions = self.binary_search_all_solutions(
+                    cutting_piece, target_cut_area, angle
+                )
+
                 # Try each valid position
                 for position in valid_positions:
                     cut_line = self.find_line(position, cutting_piece, angle)
@@ -462,14 +503,23 @@ class Player10MultiStage(Player):
 
                     # Add the cut to current cuts
                     new_cuts = current_cuts + [(from_p, to_p)]
-                    
-                    # Add the two new pieces to the queue
-                    new_queue = new_pieces_queue + [(small_piece, split_children), (large_piece, remaining_children)]
-                    
-                    # Recursively explore this branch
-                    self._explore_cut_combinations(new_queue, new_cuts, target_area, all_solutions, cut_number + 1)
 
-    def _generate_single_solution(self, target_area: float, target_ratio: float) -> Optional[Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]]:
+                    # Add the two new pieces to the queue
+                    new_queue = new_pieces_queue + [
+                        (small_piece, split_children),
+                        (large_piece, remaining_children),
+                    ]
+
+                    # Recursively explore this branch
+                    self._explore_cut_combinations(
+                        new_queue, new_cuts, target_area, all_solutions, cut_number + 1
+                    )
+
+    def _generate_single_solution(
+        self, target_area: float, target_ratio: float
+    ) -> Optional[
+        Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]
+    ]:
         """Generate a single complete solution using the divide-and-conquer approach."""
         cake_copy = self.cake.copy()
         all_cuts = []
@@ -512,7 +562,7 @@ class Player10MultiStage(Player):
             # Try a random split ratio and angle
             split_children = random.randint(min_split, max_split)
             angle = random.uniform(0, 180)
-            
+
             remaining_children = cutting_num_children - split_children
             target_cut_area = target_area * split_children
 
@@ -554,55 +604,84 @@ class Player10MultiStage(Player):
                 return None  # Cut failed
 
         # Evaluate the complete solution
-        area_span, area_std, ratio_variance, areas, ratios = self.evaluate_solution(all_cuts, self.cake)
+        area_span, area_std, ratio_variance, areas, ratios = self.evaluate_solution(
+            all_cuts, self.cake
+        )
         return (all_cuts, area_span, area_std, ratio_variance, areas, ratios)
 
-    def stage2_optimize_crust_ratios(self, valid_solutions: List[Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]]) -> List[Tuple[Point, Point]]:
+    def stage2_optimize_crust_ratios(
+        self,
+        valid_solutions: List[
+            Tuple[
+                List[Tuple[Point, Point]], float, float, float, List[float], List[float]
+            ]
+        ],
+    ) -> List[Tuple[Point, Point]]:
         """Stage 2: Among valid solutions, find the one with the best crust ratio distribution.
-        
+
         Args:
             valid_solutions: List of valid solutions from Stage 1
-            
+
         Returns:
             The best solution's cuts
         """
         if not valid_solutions:
             print("No valid solutions found in Stage 1!")
             return []
-            
-        print(f"=== STAGE 2: Optimizing crust ratios among {len(valid_solutions)} valid solutions ===")
-        
+
+        print(
+            f"=== STAGE 2: Optimizing crust ratios among {len(valid_solutions)} valid solutions ==="
+        )
+
         # HARD THRESHOLD: Filter solutions that meet specification requirement
         # Specification: area span < 0.5 cm² (this is what the spec actually uses)
         spec_threshold = 0.5
         spec_compliant_solutions = [
-            sol for sol in valid_solutions 
+            sol
+            for sol in valid_solutions
             if sol[1] < spec_threshold  # sol[1] is area_span
         ]
-        
+
         if not spec_compliant_solutions:
-            print(f"⚠️  WARNING: No solutions meet specification threshold ({spec_threshold} cm²)")
-            print(f"   Best solution has area span: {min(sol[1] for sol in valid_solutions):.3f} cm²")
-            print(f"   Using best available solution despite specification violation...")
+            print(
+                f"⚠️  WARNING: No solutions meet specification threshold ({spec_threshold} cm²)"
+            )
+            print(
+                f"   Best solution has area span: {min(sol[1] for sol in valid_solutions):.3f} cm²"
+            )
+            print(
+                f"   Using best available solution despite specification violation..."
+            )
             # Use the best solution even if it doesn't meet spec
             solutions_to_consider = valid_solutions
         else:
-            print(f"✓ {len(spec_compliant_solutions)}/{len(valid_solutions)} solutions meet specification threshold ({spec_threshold} cm²)")
+            print(
+                f"✓ {len(spec_compliant_solutions)}/{len(valid_solutions)} solutions meet specification threshold ({spec_threshold} cm²)"
+            )
             solutions_to_consider = spec_compliant_solutions
-        
+
         # Sort by ratio variance (lower is better)
         solutions_to_consider.sort(key=lambda x: x[3])  # x[3] is ratio_variance
-        
+
         best_solution = solutions_to_consider[0]
-        best_cuts, best_area_span, best_area_std, best_ratio_variance, best_areas, best_ratios = best_solution
-        
+        (
+            best_cuts,
+            best_area_span,
+            best_area_std,
+            best_ratio_variance,
+            best_areas,
+            best_ratios,
+        ) = best_solution
+
         print(f"Best solution selected:")
-        print(f"  Area span: {best_area_span:.3f} cm² {'✓' if best_area_span < spec_threshold else '⚠️'}")
+        print(
+            f"  Area span: {best_area_span:.3f} cm² {'✓' if best_area_span < spec_threshold else '⚠️'}"
+        )
         print(f"  Area std dev: {best_area_std:.3f} cm²")
         print(f"  Ratio variance: {best_ratio_variance:.4f}")
         print(f"  Areas: {[f'{a:.2f}' for a in sorted(best_areas)]}")
         print(f"  Ratios: {[f'{r:.3f}' for r in best_ratios]}")
-        
+
         return best_cuts
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
@@ -614,24 +693,34 @@ class Player10MultiStage(Player):
         print(f"TARGET AREA: {target_area:.2f} cm²")
         print(f"TARGET CRUST RATIO: {target_ratio:.3f}")
         print(f"ADAPTIVE AREA STD DEV THRESHOLD: {self.area_std_threshold:.3f} cm²")
-        print("Strategy: Two-stage optimization (area threshold → crust optimization)\n")
+        print(
+            "Strategy: Two-stage optimization (area threshold → crust optimization)\n"
+        )
 
         # Stage 1: Find multiple valid solutions meeting area threshold
         valid_solutions = self.stage1_find_valid_solutions(target_area, target_ratio)
-        
+
         if not valid_solutions:
-            print("No valid solutions found! Falling back to single solution approach...")
+            print(
+                "No valid solutions found! Falling back to single solution approach..."
+            )
             # Fallback to original approach
             return self._fallback_single_solution(target_area, target_ratio)
-        
+
         # Stage 2: Optimize for best crust ratio among valid solutions
         best_cuts = self.stage2_optimize_crust_ratios(valid_solutions)
-        
+
         # Final validation: Check if result meets specification
         if best_cuts:
-            final_area_span, final_area_std, final_ratio_variance, final_areas, final_ratios = self.evaluate_solution(best_cuts, self.cake)
+            (
+                final_area_span,
+                final_area_std,
+                final_ratio_variance,
+                final_areas,
+                final_ratios,
+            ) = self.evaluate_solution(best_cuts, self.cake)
             spec_threshold = 0.5
-            
+
             print(f"\n{'=' * 50}")
             print(f"FINAL VALIDATION:")
             print(f"  Area span: {final_area_span:.3f} cm²")
@@ -643,19 +732,21 @@ class Player10MultiStage(Player):
                 print(f"  ⚠️  SPECIFICATION VIOLATION")
             print(f"  Ratio variance: {final_ratio_variance:.4f}")
             print(f"{'=' * 50}\n")
-        
+
         return best_cuts
 
-    def _fallback_single_solution(self, target_area: float, target_ratio: float) -> List[Tuple[Point, Point]]:
+    def _fallback_single_solution(
+        self, target_area: float, target_ratio: float
+    ) -> List[Tuple[Point, Point]]:
         """Fallback to the original single-solution approach if Stage 1 fails."""
         print("Using fallback single-solution approach...")
-        
+
         # Use the original greedy approach from Player 10
         cake_copy = self.cake.copy()
         all_cuts = []
         pieces_queue = [(cake_copy.exterior_shape, self.children)]
         cut_number = 0
-        
+
         while cut_number < self.children - 1:
             # Find piece to cut (same logic as original)
             cutting_piece = None
@@ -683,15 +774,15 @@ class Player10MultiStage(Player):
             # Try to find a good cut (simplified version)
             min_split = 1
             max_split = max(1, cutting_num_children // 2)
-            
+
             best_cut = None
             best_score = float("inf")
-            
+
             # Try a few random combinations
             for _ in range(50):  # Fewer attempts for fallback
                 split_children = random.randint(min_split, max_split)
                 angle = random.uniform(0, 180)
-                
+
                 remaining_children = cutting_num_children - split_children
                 target_cut_area = target_area * split_children
 
@@ -723,13 +814,27 @@ class Player10MultiStage(Player):
 
                 if score < best_score:
                     best_score = score
-                    best_cut = (from_p, to_p, small_piece, large_piece, split_children, remaining_children)
+                    best_cut = (
+                        from_p,
+                        to_p,
+                        small_piece,
+                        large_piece,
+                        split_children,
+                        remaining_children,
+                    )
 
             if best_cut is None:
                 print(f"Failed to find cut {cut_number + 1}")
                 break
 
-            from_p, to_p, small_piece, large_piece, split_children, remaining_children = best_cut
+            (
+                from_p,
+                to_p,
+                small_piece,
+                large_piece,
+                split_children,
+                remaining_children,
+            ) = best_cut
 
             # Make the cut
             try:

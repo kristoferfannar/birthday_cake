@@ -13,7 +13,7 @@ from shapely.ops import split
 
 def _default_region_performance():
     """Default factory function for region performance tracking"""
-    return {'total_score': 0.0, 'samples': 0, 'avg_score': float('inf')}
+    return {"total_score": 0.0, "samples": 0, "avg_score": float("inf")}
 
 
 def _evaluate_angle_standalone(args):
@@ -25,7 +25,7 @@ def _evaluate_angle_standalone(args):
         cutting_num_children,
         target_area,
         target_ratio,
-        target_area_tolerance
+        target_area_tolerance,
     ) = args
 
     # Recreate the cutting piece from coordinates
@@ -58,7 +58,7 @@ def _evaluate_angle_standalone(args):
             best_error = error
             best_pos = mid_pos
 
-        if error < target_area_tolerance:
+        if error < 0:
             break
 
         if cut_area < target_cut_area:
@@ -137,17 +137,17 @@ def _evaluate_angle_standalone(args):
     score = size_error * 3.0 + ratio_error * 1.0
 
     return {
-        'score': score,
-        'cut_points': (from_p, to_p),
-        'small_piece': small_piece,
-        'large_piece': large_piece,
-        'ratio1': ratio1,
-        'ratio2': ratio2,
-        'angle': angle,
-        'split_children': split_children,
-        'remaining_children': remaining_children,
-        'size_error': size_error,
-        'ratio_error': ratio_error
+        "score": score,
+        "cut_points": (from_p, to_p),
+        "small_piece": small_piece,
+        "large_piece": large_piece,
+        "ratio1": ratio1,
+        "ratio2": ratio2,
+        "angle": angle,
+        "split_children": split_children,
+        "remaining_children": remaining_children,
+        "size_error": size_error,
+        "ratio_error": ratio_error,
     }
 
 
@@ -220,7 +220,14 @@ def _calculate_piece_area_standalone(piece: Polygon, position: float, angle: flo
         return piece2.area
 
 
-def _process_batch_standalone(batch_args, cutting_piece_coords, cutting_num_children, target_area, target_ratio, target_area_tolerance):
+def _process_batch_standalone(
+    batch_args,
+    cutting_piece_coords,
+    cutting_num_children,
+    target_area,
+    target_ratio,
+    target_area_tolerance,
+):
     """Standalone function for multiprocessing - process a batch of attempts"""
     results = []
 
@@ -228,13 +235,22 @@ def _process_batch_standalone(batch_args, cutting_piece_coords, cutting_num_chil
     cutting_piece = Polygon(cutting_piece_coords)
 
     for args in batch_args:
-        result = _evaluate_angle_standalone((
-            args[0], args[1], cutting_piece_coords, cutting_num_children, target_area, target_ratio, target_area_tolerance
-        ))
+        result = _evaluate_angle_standalone(
+            (
+                args[0],
+                args[1],
+                cutting_piece_coords,
+                cutting_num_children,
+                target_area,
+                target_ratio,
+                target_area_tolerance,
+            )
+        )
         if result:
             results.append(result)
 
     return results
+
 
 PHRASE_ONE_TOTAL_ATTEMPS = 90 * 6 * 9
 PHRASE_TWO_TOTAL_ATTEMPS = 360 * 6 * 9
@@ -264,7 +280,9 @@ class Player10(Player):
         self.angle_regions = 8  # Divide 360 degrees into 8 regions
         self.region_size = 360.0 / self.angle_regions
         self.region_performance = defaultdict(_default_region_performance)
-        self.exploration_rate = 0.1  # 10% of samples are uniform random for global exploration
+        self.exploration_rate = (
+            0.1  # 10% of samples are uniform random for global exploration
+        )
 
     def get_angle_region(self, angle: float) -> int:
         """Get the region index for a given angle (0-7)"""
@@ -274,9 +292,9 @@ class Player10(Player):
         """Update the performance tracking for an angle region"""
         region = self.get_angle_region(angle)
         perf = self.region_performance[region]
-        perf['total_score'] += score
-        perf['samples'] += 1
-        perf['avg_score'] = perf['total_score'] / perf['samples']
+        perf["total_score"] += score
+        perf["samples"] += 1
+        perf["avg_score"] = perf["total_score"] / perf["samples"]
 
     def sample_angle_bayesian(self) -> float:
         """Sample an angle using Bayesian approach with performance-based weighting"""
@@ -291,13 +309,15 @@ class Player10(Player):
 
             for region in regions:
                 perf = self.region_performance[region]
-                if perf['samples'] == 0:
+                if perf["samples"] == 0:
                     # New region, give it a chance
                     weight = 1.0
                 else:
                     # Better regions (lower average score) get higher weight
                     # Using inverse of average score since lower is better
-                    weight = 1.0 / (perf['avg_score'] + 1e-6)  # Add small epsilon to avoid division by zero
+                    weight = 1.0 / (
+                        perf["avg_score"] + 1e-6
+                    )  # Add small epsilon to avoid division by zero
 
                 weights.append(weight)
 
@@ -528,7 +548,7 @@ class Player10(Player):
             cutting_num_children,
             target_area,
             target_ratio,
-            phase
+            phase,
         ) = args
 
         remaining_children = cutting_num_children - split_children
@@ -569,42 +589,62 @@ class Player10(Player):
         score = size_error * 3.0 + ratio_error * 1.0
 
         return {
-            'score': score,
-            'cut_points': (from_p, to_p),
-            'small_piece': small_piece,
-            'large_piece': large_piece,
-            'ratio1': ratio1,
-            'ratio2': ratio2,
-            'angle': angle,
-            'split_children': split_children,
-            'remaining_children': remaining_children,
-            'size_error': size_error,
-            'ratio_error': ratio_error
+            "score": score,
+            "cut_points": (from_p, to_p),
+            "small_piece": small_piece,
+            "large_piece": large_piece,
+            "ratio1": ratio1,
+            "ratio2": ratio2,
+            "angle": angle,
+            "split_children": split_children,
+            "remaining_children": remaining_children,
+            "size_error": size_error,
+            "ratio_error": ratio_error,
         }
 
-    def _process_batch(self, batch_args, cutting_piece, cutting_num_children, target_area, target_ratio):
+    def _process_batch(
+        self, batch_args, cutting_piece, cutting_num_children, target_area, target_ratio
+    ):
         """Process a batch of attempts and return the best result"""
         best_result = None
         best_score = float("inf")
 
         for args in batch_args:
-            result = self._evaluate_attempt((
-                args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
-            ))
-            if result and result['score'] < best_score:
-                best_score = result['score']
+            result = self._evaluate_attempt(
+                (
+                    args[0],
+                    args[1],
+                    cutting_piece,
+                    cutting_num_children,
+                    target_area,
+                    target_ratio,
+                    args[2],
+                )
+            )
+            if result and result["score"] < 0.30:
+                best_score = result["score"]
                 best_result = result
 
         return best_result
 
-    def _process_batch_bayesian(self, batch_args, cutting_piece, cutting_num_children, target_area, target_ratio):
+    def _process_batch_bayesian(
+        self, batch_args, cutting_piece, cutting_num_children, target_area, target_ratio
+    ):
         """Process a batch of attempts and return all results for Bayesian learning"""
         results = []
 
         for args in batch_args:
-            result = self._evaluate_attempt((
-                args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
-            ))
+            result = self._evaluate_attempt(
+                (
+                    args[0],
+                    args[1],
+                    cutting_piece,
+                    cutting_num_children,
+                    target_area,
+                    target_ratio,
+                    args[2],
+                )
+            )
             if result:
                 results.append(result)
 
@@ -618,11 +658,13 @@ class Player10(Player):
 
         for region in range(self.angle_regions):
             perf = self.region_performance[region]
-            if perf['samples'] > 0:
+            if perf["samples"] > 0:
                 region_start = region * self.region_size
                 region_end = (region + 1) * self.region_size
                 region_range = f"{region_start:6.1f}-{region_end:6.1f}°"
-                print(f"  {region:6d}  {perf['samples']:6d}  {perf['avg_score']:10.3f}  {region_range}")
+                print(
+                    f"  {region:6d}  {perf['samples']:6d}  {perf['avg_score']:10.3f}  {region_range}"
+                )
             else:
                 region_start = region * self.region_size
                 region_end = (region + 1) * self.region_size
@@ -728,38 +770,56 @@ class Player10(Player):
                 attempts_to_try.append((split_children, angle, "phase1"))
 
             # Process Phase 1 attempts concurrently
-            print(f"  Phase 1: Processing {len(attempts_to_try)} attempts across {self.num_of_processes} processes...")
+            print(
+                f"  Phase 1: Processing {len(attempts_to_try)} attempts across {self.num_of_processes} processes..."
+            )
 
             # Split attempts into batches for each process
             batch_size = max(1, len(attempts_to_try) // self.num_of_processes)
-            batches = [attempts_to_try[i:i + batch_size] for i in range(0, len(attempts_to_try), batch_size)]
+            batches = [
+                attempts_to_try[i : i + batch_size]
+                for i in range(0, len(attempts_to_try), batch_size)
+            ]
 
             # Process attempts sequentially (simplified for now to avoid multiprocessing issues)
-            print(f"  Phase 1: Processing {len(attempts_to_try)} attempts sequentially...")
+            print(
+                f"  Phase 1: Processing {len(attempts_to_try)} attempts sequentially..."
+            )
             for args in attempts_to_try:
-                result = self._evaluate_attempt((
-                    args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
-                ))
+                result = self._evaluate_attempt(
+                    (
+                        args[0],
+                        args[1],
+                        cutting_piece,
+                        cutting_num_children,
+                        target_area,
+                        target_ratio,
+                        args[2],
+                    )
+                )
                 if result:
                     valid_attempts += 1
 
                     # Update best scores
-                    split_children = result['split_children']
-                    if result['score'] < split_ratio_scores[split_children]:
-                        split_ratio_scores[split_children] = result['score']
+                    split_children = result["split_children"]
+                    if result["score"] < split_ratio_scores[split_children]:
+                        split_ratio_scores[split_children] = result["score"]
 
-                    if result['score'] < best_score:
-                        best_score = result['score']
+                    if result["score"] < best_score:
+                        best_score = result["score"]
                         best_cut = (
-                            result['cut_points'][0],
-                            result['cut_points'][1],
-                            result['small_piece'],
-                            result['large_piece'],
-                            result['ratio1'],
-                            result['ratio2'],
-                            result['angle'],
+                            result["cut_points"][0],
+                            result["cut_points"][1],
+                            result["small_piece"],
+                            result["large_piece"],
+                            result["ratio1"],
+                            result["ratio2"],
+                            result["angle"],
                         )
-                        best_split_ratio = (split_children, result['remaining_children'])
+                        best_split_ratio = (
+                            split_children,
+                            result["remaining_children"],
+                        )
 
             # Phase 2: Use the best split ratio found, only vary angles
             if split_ratio_scores:
@@ -781,7 +841,9 @@ class Player10(Player):
                 target_cut_area_phase2 = target_area * best_ratio_from_phase1
 
                 # Generate angles for phase 2 using Bayesian sampling
-                print(f"  Phase 2: Using Bayesian sampling with {self.phrase_two_attempts} attempts...")
+                print(
+                    f"  Phase 2: Using Bayesian sampling with {self.phrase_two_attempts} attempts..."
+                )
 
                 # Generate angles using Bayesian sampling
                 phase2_angles = []
@@ -790,45 +852,65 @@ class Player10(Player):
                     phase2_angles.append(angle)
 
                 # Process Phase 2 attempts concurrently
-                phase2_attempts_to_try = [(best_ratio_from_phase1, angle, "phase2") for angle in phase2_angles]
+                phase2_attempts_to_try = [
+                    (best_ratio_from_phase1, angle, "phase2") for angle in phase2_angles
+                ]
 
                 # Split phase 2 attempts into batches for each process
-                batch_size = max(1, len(phase2_attempts_to_try) // self.num_of_processes)
-                batches = [phase2_attempts_to_try[i:i + batch_size] for i in range(0, len(phase2_attempts_to_try), batch_size)]
+                batch_size = max(
+                    1, len(phase2_attempts_to_try) // self.num_of_processes
+                )
+                batches = [
+                    phase2_attempts_to_try[i : i + batch_size]
+                    for i in range(0, len(phase2_attempts_to_try), batch_size)
+                ]
 
                 # Process attempts sequentially (simplified for now to avoid multiprocessing issues)
-                print(f"  Phase 2: Processing {len(phase2_attempts_to_try)} attempts sequentially...")
+                print(
+                    f"  Phase 2: Processing {len(phase2_attempts_to_try)} attempts sequentially..."
+                )
                 for args in phase2_attempts_to_try:
-                    result = self._evaluate_attempt((
-                        args[0], args[1], cutting_piece, cutting_num_children, target_area, target_ratio, args[2]
-                    ))
+                    result = self._evaluate_attempt(
+                        (
+                            args[0],
+                            args[1],
+                            cutting_piece,
+                            cutting_num_children,
+                            target_area,
+                            target_ratio,
+                            args[2],
+                        )
+                    )
                     if result:
                         valid_attempts += 1
 
                         # Update performance tracking
-                        self.update_region_performance(result['angle'], result['score'])
+                        self.update_region_performance(result["angle"], result["score"])
 
-                        if result['score'] < best_score:
-                            best_score = result['score']
+                        if result["score"] < best_score:
+                            best_score = result["score"]
                             best_cut = (
-                                result['cut_points'][0],
-                                result['cut_points'][1],
-                                result['small_piece'],
-                                result['large_piece'],
-                                result['ratio1'],
-                                result['ratio2'],
-                                result['angle'],
+                                result["cut_points"][0],
+                                result["cut_points"][1],
+                                result["small_piece"],
+                                result["large_piece"],
+                                result["ratio1"],
+                                result["ratio2"],
+                                result["angle"],
                             )
-                            best_split_ratio = (result['split_children'], result['remaining_children'])
+                            best_split_ratio = (
+                                result["split_children"],
+                                result["remaining_children"],
+                            )
 
                 # Print region performance summary
                 self._print_region_performance()
 
-            print(
-                f"    Best cut found with score {best_score:.3f}"
-            )
+            print(f"    Best cut found with score {best_score:.3f}")
             if best_cut is None:
-                print(f"  No valid cut found after {len(attempts_to_try) + len(phase2_attempts_to_try)} attempts!")
+                print(
+                    f"  No valid cut found after {len(attempts_to_try) + len(phase2_attempts_to_try)} attempts!"
+                )
                 # Put the piece back for now (shouldn't happen often)
                 pieces_queue.append((cutting_piece, cutting_num_children))
                 continue
