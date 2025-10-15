@@ -5,7 +5,17 @@ from shapely.geometry import Polygon, LineString, Point
 from shapely import MultiLineString, intersection
 from shapely.ops import split
 from typing import cast, List
-from math import hypot, pi, cos, sin, isclose, floor, ceil, sqrt, isclose as math_isclose
+from math import (
+    hypot,
+    pi,
+    cos,
+    sin,
+    isclose,
+    floor,
+    ceil,
+    sqrt,
+    isclose as math_isclose,
+)
 import numpy as np
 from joblib import Parallel, delayed
 import src.constants as c
@@ -14,11 +24,14 @@ import src.constants as c
 PHI = (1 + sqrt(5)) / 2
 RES_TUPLE = tuple[float, float, float]  # (Area_Score, Ratio_Score, Length_Score)
 
+
 @dataclass
 class CutResult:
     """Stores the resulting polygons and the cut endpoints."""
+
     polygons: list[Polygon]
     points: tuple[Point, Point]
+
 
 def extend_line_robust(line: LineString, extension_factor: float = 1.1) -> LineString:
     """
@@ -50,6 +63,7 @@ def extend_line_robust(line: LineString, extension_factor: float = 1.1) -> LineS
 
     return LineString([(x1n, y1n), (x2n, y2n)])
 
+
 class Player1(Player):
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
         super().__init__(children, cake, cake_path)
@@ -62,7 +76,9 @@ class Player1(Player):
 
     # --- Utility Methods ---
 
-    def _get_piece_boundary_touchers(self, p: Point, pieces: list[Polygon]) -> list[Polygon]:
+    def _get_piece_boundary_touchers(
+        self, p: Point, pieces: list[Polygon]
+    ) -> list[Polygon]:
         """Returns list of polygons whose boundary is near the specified point."""
         return [piece for piece in pieces if p.distance(piece.boundary) <= c.TOL]
 
@@ -112,20 +128,26 @@ class Player1(Player):
         # Success case
         return piece, LineString([a, b]), ""
 
-    def _validate_and_make_cut(self, from_p: Point, to_p: Point, piece: Polygon) -> CutResult | None:
+    def _validate_and_make_cut(
+        self, from_p: Point, to_p: Point, piece: Polygon
+    ) -> CutResult | None:
         """Validates a cut and executes it virtually if valid."""
         line_segment = LineString([from_p, to_p])
         if not self._is_cut_fully_contained(line_segment, piece):
             return None
 
-        target_piece, snapped_line, reason = self._get_single_cuttable_piece(from_p, to_p, [piece])
+        target_piece, snapped_line, reason = self._get_single_cuttable_piece(
+            from_p, to_p, [piece]
+        )
         if target_piece is None:
             return None
 
         # Re-extend the snapped line for the split operation
         extended_snapped_line = extend_line_robust(snapped_line)
         split_piece = split(target_piece, extended_snapped_line)
-        split_pieces: list[Polygon] = [cast(Polygon, geom) for geom in split_piece.geoms]
+        split_pieces: list[Polygon] = [
+            cast(Polygon, geom) for geom in split_piece.geoms
+        ]
 
         # Use the snapped points for the final output
         a, b = Point(snapped_line.coords[0]), Point(snapped_line.coords[1])
@@ -139,10 +161,16 @@ class Player1(Player):
             # very rare fallback
             if piece.intersects(self.cake.interior_shape):
                 inter = piece.intersection(self.cake.interior_shape)
-                return inter.area / piece.area if not inter.is_empty and piece.area > 0 else 0.0
+                return (
+                    inter.area / piece.area
+                    if not inter.is_empty and piece.area > 0
+                    else 0.0
+                )
             return 0.0
 
-    def _score_cut_by_division(self, cut: CutResult, n_children_to_divide: int) -> RES_TUPLE:
+    def _score_cut_by_division(
+        self, cut: CutResult, n_children_to_divide: int
+    ) -> RES_TUPLE:
         """
         Score a candidate cut for a given piece split.
         Primary = area closeness to each side's slice budget (with flat_tol),
@@ -188,7 +216,9 @@ class Player1(Player):
 
     # --- Search machinery ---
 
-    def _generate_line_from_angle_pos(self, piece: Polygon, angle_rad: float, position_frac: float) -> LineString:
+    def _generate_line_from_angle_pos(
+        self, piece: Polygon, angle_rad: float, position_frac: float
+    ) -> LineString:
         """Long line across the piece's bbox at angle angle_rad and sweep position."""
         min_x, min_y, max_x, max_y = piece.bounds
 
@@ -213,7 +243,9 @@ class Player1(Player):
 
         return LineString([(x1, y1), (x2, y2)])
 
-    def _try_cut_at_position(self, position_frac: float, piece: Polygon, angle_rad: float) -> list[CutResult] | None:
+    def _try_cut_at_position(
+        self, position_frac: float, piece: Polygon, angle_rad: float
+    ) -> list[CutResult] | None:
         """Attempt to make a cut at the given angle and position."""
         line = self._generate_line_from_angle_pos(piece, angle_rad, position_frac)
         intersections = intersection(line, piece)
@@ -221,10 +253,16 @@ class Player1(Player):
             return None
 
         results: List[CutResult] = []
-        geometries = intersections.geoms if isinstance(intersections, MultiLineString) else [intersections]
+        geometries = (
+            intersections.geoms
+            if isinstance(intersections, MultiLineString)
+            else [intersections]
+        )
         for geom in geometries:
             if isinstance(geom, LineString):
-                cut_res = self._validate_and_make_cut(Point(geom.coords[0]), Point(geom.coords[-1]), piece)
+                cut_res = self._validate_and_make_cut(
+                    Point(geom.coords[0]), Point(geom.coords[-1]), piece
+                )
                 if cut_res:
                     results.append(cut_res)
         return results if results else None
@@ -238,6 +276,7 @@ class Player1(Player):
         max_iterations: int = 80,
     ) -> tuple[CutResult | None, RES_TUPLE]:
         """Golden Section Search for the optimal cut position (0.01 to 0.99) at a fixed angle."""
+
         def evaluate_position(pos: float) -> tuple[CutResult | None, RES_TUPLE]:
             cuts = self._try_cut_at_position(pos, piece, angle_rad)
             best_cut: CutResult | None = None
@@ -255,7 +294,9 @@ class Player1(Player):
 
         cut_c, score_c = evaluate_position(c_val)
         cut_d, score_d = evaluate_position(d_val)
-        best_cut, best_score = min([(cut_c, score_c), (cut_d, score_d)], key=lambda x: x[1])
+        best_cut, best_score = min(
+            [(cut_c, score_c), (cut_d, score_d)], key=lambda x: x[1]
+        )
 
         for _ in range(max_iterations):
             if abs(b - a) < epsilon:
@@ -280,7 +321,9 @@ class Player1(Player):
 
         return best_cut, best_score
 
-    def _evaluate_angle_gss(self, angle_rad: float, piece: Polygon, n_children: int) -> tuple[CutResult | None, RES_TUPLE]:
+    def _evaluate_angle_gss(
+        self, angle_rad: float, piece: Polygon, n_children: int
+    ) -> tuple[CutResult | None, RES_TUPLE]:
         """Helper to evaluate a single angle using Golden Section Search for parallel processing."""
         return self._golden_section_search_cut(piece, n_children, angle_rad)
 
@@ -290,9 +333,13 @@ class Player1(Player):
         """Run divide-and-conquer on a specific Cake object and return the cut list."""
         if not cake_obj.exterior_pieces:
             return []
-        return self._divide_and_conquer_with_cake(cake_obj.exterior_pieces[0], self.children, cake_obj)
+        return self._divide_and_conquer_with_cake(
+            cake_obj.exterior_pieces[0], self.children, cake_obj
+        )
 
-    def _divide_and_conquer_with_cake(self, piece: Polygon, n_children_to_divide: int, cake_obj: Cake) -> list[tuple[Point, Point]]:
+    def _divide_and_conquer_with_cake(
+        self, piece: Polygon, n_children_to_divide: int, cake_obj: Cake
+    ) -> list[tuple[Point, Point]]:
         if n_children_to_divide <= 1:
             return []
 
@@ -310,7 +357,11 @@ class Player1(Player):
 
         for cut, score in results_coarse:
             # Must ensure a valid cut that actually split the piece into two
-            if cut is not None and score < best_overall_score and len(cut.polygons) == 2:
+            if (
+                cut is not None
+                and score < best_overall_score
+                and len(cut.polygons) == 2
+            ):
                 best_overall_score, best_overall_cut = score, cut
 
         if not best_overall_cut:
@@ -356,7 +407,9 @@ class Player1(Player):
         best_size_span = float("inf")
         best_cuts: list[tuple[Point, Point]] = []
 
-        print("\n[Player1] threshold sweep (flat_tol): choose MIN (size_span + ratio_score)")
+        print(
+            "\n[Player1] threshold sweep (flat_tol): choose MIN (size_span + ratio_score)"
+        )
         print("  thr     count   size_span     ratio_score")
 
         for thr in thresholds:
@@ -372,15 +425,19 @@ class Player1(Player):
                 areas = [p.area for p in final_pieces] if final_pieces else []
                 count = len(areas)
                 if count != self.children or count == 0:
-                    print(f"  {thr:0.3f}   {count:5d}   {'nan':>9}   {'nan':>12}  (skipped)")
+                    print(
+                        f"  {thr:0.3f}   {count:5d}   {'nan':>9}   {'nan':>12}  (skipped)"
+                    )
                     continue
 
-                size_span = (max(areas) - min(areas))
+                size_span = max(areas) - min(areas)
                 ratios = [cake_sim.get_piece_ratio(p) for p in final_pieces]
                 ratio_score = float(np.std(ratios)) if ratios else float("inf")
                 metric_sum = size_span + ratio_score
 
-                print(f"  {thr:0.3f}   {count:5d}   {size_span:9.5f}   {ratio_score:12.5f}")
+                print(
+                    f"  {thr:0.3f}   {count:5d}   {size_span:9.5f}   {ratio_score:12.5f}"
+                )
 
             except Exception:
                 print(f"  {thr:0.3f}   ERROR computing metrics")
@@ -391,7 +448,10 @@ class Player1(Player):
             if metric_sum < best_metric_sum:
                 better = True
             elif math_isclose(metric_sum, best_metric_sum):
-                if (ratio_score < best_ratio_score) or (math_isclose(ratio_score, best_ratio_score) and size_span < best_size_span):
+                if (ratio_score < best_ratio_score) or (
+                    math_isclose(ratio_score, best_ratio_score)
+                    and size_span < best_size_span
+                ):
                     better = True
 
             if better:
@@ -402,11 +462,15 @@ class Player1(Player):
                 best_cuts = cuts_try
 
         if best_thresh is None or not best_cuts:
-            print("\n[Player1] No threshold produced a full set. Running once with thr=0.001.")
+            print(
+                "\n[Player1] No threshold produced a full set. Running once with thr=0.001."
+            )
             self.flat_tol = 0.001
             return self._plan_on_cake(self.cake)
 
-        print(f"\n[Player1] Selected thr={best_thresh:.3f}  size_span={best_size_span:.5f}  ratio_score={best_ratio_score:.5f}  (sum={best_metric_sum:.5f})\n")
+        print(
+            f"\n[Player1] Selected thr={best_thresh:.3f}  size_span={best_size_span:.5f}  ratio_score={best_ratio_score:.5f}  (sum={best_metric_sum:.5f})\n"
+        )
 
         # replay best threshold on the REAL cake and return its cuts
         self.flat_tol = best_thresh
