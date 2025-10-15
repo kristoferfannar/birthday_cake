@@ -83,7 +83,7 @@ class Player4(Player):
         print(
             f"Player 4: Search complete, took {self.end_time - self.start_time} seconds."
         )
-        while result is None and self.end_time - self.start_time < 60:
+        while result is None and self.end_time - self.start_time < 300:
             self.N_SWEEP_DIRECTIONS = self.N_SWEEP_DIRECTIONS * 2
             print(
                 f"Increasing sweep directions to {self.N_SWEEP_DIRECTIONS} and retrying..."
