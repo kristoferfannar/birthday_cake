@@ -154,6 +154,7 @@ class Player3(Player):
             # self.target_area * self.children * desired_cut_ratio,
             piece.area * desired_cut_ratio,
             self.original_ratio,
+            piece
         )
 
         if not valid_cuts:

@@ -103,10 +103,11 @@ def find_valid_cuts_binary_search(
     perim_points: list[Point] | None,
     target_area: float,
     original_ratio: float,
+    largest_piece: Polygon
 ) -> list[tuple[Point, Point]]:
     valid_cuts = []
 
-    largest_piece = max(cake.get_pieces(), key=lambda piece: piece.area)
+    #largest_piece = max(cake.get_pieces(), key=lambda piece: piece.area)
     print("Centroid", largest_piece.centroid)
 
     for xy1 in perim_points:
