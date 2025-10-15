@@ -3,7 +3,6 @@ import math
 import random
 from statistics import stdev
 import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from collections import defaultdict
 
 from players.player import Player
@@ -232,7 +231,7 @@ def _process_batch_standalone(
     results = []
 
     # Recreate the cutting piece from coordinates
-    cutting_piece = Polygon(cutting_piece_coords)
+    # cutting_piece = Polygon(cutting_piece_coords)
 
     for args in batch_args:
         result = _evaluate_angle_standalone(
@@ -607,7 +606,7 @@ class Player10(Player):
     ):
         """Process a batch of attempts and return the best result"""
         best_result = None
-        best_score = float("inf")
+        # best_score = float("inf")
 
         for args in batch_args:
             result = self._evaluate_attempt(
@@ -622,7 +621,7 @@ class Player10(Player):
                 )
             )
             if result and result["score"] < 0.30:
-                best_score = result["score"]
+                # best_score = result["score"]
                 best_result = result
 
         return best_result
@@ -775,12 +774,8 @@ class Player10(Player):
             )
 
             # Split attempts into batches for each process
-            batch_size = max(1, len(attempts_to_try) // self.num_of_processes)
-            batches = [
-                attempts_to_try[i : i + batch_size]
-                for i in range(0, len(attempts_to_try), batch_size)
-            ]
-
+            
+            
             # Process attempts sequentially (simplified for now to avoid multiprocessing issues)
             print(
                 f"  Phase 1: Processing {len(attempts_to_try)} attempts sequentially..."
@@ -835,10 +830,7 @@ class Player10(Player):
                     f"  Phase 2: Trying {self.phrase_two_attempts} more angles with best ratio across {self.num_of_processes} processes..."
                 )
 
-                remaining_children_phase2 = (
-                    cutting_num_children - best_ratio_from_phase1
-                )
-                target_cut_area_phase2 = target_area * best_ratio_from_phase1
+               
 
                 # Generate angles for phase 2 using Bayesian sampling
                 print(
@@ -857,13 +849,8 @@ class Player10(Player):
                 ]
 
                 # Split phase 2 attempts into batches for each process
-                batch_size = max(
-                    1, len(phase2_attempts_to_try) // self.num_of_processes
-                )
-                batches = [
-                    phase2_attempts_to_try[i : i + batch_size]
-                    for i in range(0, len(phase2_attempts_to_try), batch_size)
-                ]
+                
+            
 
                 # Process attempts sequentially (simplified for now to avoid multiprocessing issues)
                 print(

@@ -2,7 +2,6 @@ from shapely.geometry import LineString, Point, Polygon
 import math
 import random
 from statistics import stdev
-import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from players.player import Player
@@ -496,10 +495,7 @@ class Player10(Player):
                     f"  Phase 2: Trying {self.phrase_two_attempts} more angles with best ratio across {self.num_of_processes} processes..."
                 )
 
-                remaining_children_phase2 = (
-                    cutting_num_children - best_ratio_from_phase1
-                )
-                target_cut_area_phase2 = target_area * best_ratio_from_phase1
+                
 
                 # Generate angles for phase 2
                 angle_step = 360.0 / self.phrase_two_attempts

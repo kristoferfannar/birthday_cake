@@ -2,7 +2,6 @@ from shapely.geometry import LineString, Point, Polygon
 import math
 import random
 from statistics import stdev
-import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from players.player import Player
@@ -907,10 +906,7 @@ class Player10(Player):
                     f"  Phase 2: Trying {self.phrase_two_attempts} more angles with best ratio..."
                 )
 
-                remaining_children_phase2 = (
-                    cutting_num_children - best_ratio_from_phase1
-                )
-                target_cut_area_phase2 = target_area * best_ratio_from_phase1
+               
 
                 # Generate angles for phase 2
                 angle_step = 360.0 / self.phrase_two_attempts
@@ -1195,7 +1191,7 @@ class Player10(Player):
 
             # If successful, return the reversed order
             return reversed_cuts
-        except:
+        except:  # noqa: E722
             return None  # Reversed order didn't work
 
     def _optimize_individual_cuts(self, cuts: list, cake: Cake) -> list | None:
@@ -1211,7 +1207,7 @@ class Player10(Player):
             try:
                 cake_copy.cut(cut[0], cut[1])
                 optimized_cuts.append(cut)
-            except:
+            except:  # noqa: E722
                 # If this cut fails, try to find a replacement
                 print(f"    Cut {i + 1} failed, trying to find replacement...")
                 # For now, just skip this cut (simplified approach)

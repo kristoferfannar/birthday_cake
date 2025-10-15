@@ -8,7 +8,7 @@ import sys
 import os
 import random
 from typing import List, Tuple, Optional
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import Point, Polygon
 from shapely.ops import split
 from statistics import stdev
 
@@ -121,7 +121,7 @@ class Player10SystematicFast(Player10):
         Tuple[List[Tuple[Point, Point]], float, float, float, List[float], List[float]]
     ]:
         """Generate multiple solutions using systematic approach with 0.25 cm² tolerance."""
-        print(f"=== Generating solutions with 0.25 cm² tolerance ===")
+        print("=== Generating solutions with 0.25 cm² tolerance ===")
 
         all_solutions = []
         attempts = 0
@@ -259,11 +259,11 @@ class Player10SystematicFast(Player10):
             self.cake.get_piece_ratios()[0] if self.cake.get_pieces() else 0.5
         )
 
-        print(f"__________Systematic Fast Cutting for {self.children} children_______")
-        print(f"TARGET AREA: {target_area:.2f} cm²")
-        print(f"TARGET CRUST RATIO: {target_ratio:.3f}")
-        print(f"TOLERANCE: {self.target_area_tolerance} cm²")
-        print(f"Strategy: Systematic solution collection with 0.25 cm² tolerance")
+        print("__________Systematic Fast Cutting for {self.children} children_______")
+        print("TARGET AREA: {target_area:.2f} cm²")
+        print("TARGET CRUST RATIO: {target_ratio:.3f}")
+        print("TOLERANCE: {self.target_area_tolerance} cm²")
+        print("Strategy: Systematic solution collection with 0.25 cm² tolerance")
 
         # Stage 1: Generate multiple solutions
         all_solutions = self.generate_multiple_solutions(target_area, target_ratio)
@@ -286,7 +286,7 @@ class Player10SystematicFast(Player10):
             best_ratios,
         ) = best_solution
 
-        print(f"\nBest solution selected:")
+        print("\nBest solution selected:")
         print(f"  Area span: {best_area_span:.3f} cm²")
         print(f"  Area std dev: {best_area_std:.3f} cm²")
         print(f"  Ratio variance: {best_ratio_variance:.4f}")
@@ -295,13 +295,13 @@ class Player10SystematicFast(Player10):
 
         # Final validation
         spec_threshold = 0.5
-        print(f"\nFinal validation:")
-        print(f"  Area span: {best_area_span:.3f} cm²")
-        print(f"  Specification threshold: {spec_threshold} cm²")
+        print("\nFinal validation:")
+        print("  Area span: {best_area_span:.3f} cm²")
+        print("  Specification threshold: {spec_threshold} cm²")
         if best_area_span < spec_threshold:
-            print(f"  ✓ SPECIFICATION COMPLIANT")
+            print("  ✓ SPECIFICATION COMPLIANT")
         else:
-            print(f"  ⚠️  SPECIFICATION VIOLATION")
+            print("  ⚠️  SPECIFICATION VIOLATION")
 
         return best_cuts
 

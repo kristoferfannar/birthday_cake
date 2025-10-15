@@ -7,7 +7,7 @@ import sys
 import os
 import random
 from typing import List, Tuple, Optional
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import Point
 from shapely.ops import split
 from statistics import stdev
 
@@ -90,7 +90,7 @@ class Player10SimpleMulti(Player10):
         print(f"TARGET CRUST RATIO: {target_ratio:.3f}")
         print(f"TOLERANCE: {self.target_area_tolerance} cm²")
         print(
-            f"Strategy: Collect multiple solutions with 0.25 cm² tolerance, optimize crust ratios"
+            "Strategy: Collect multiple solutions with 0.25 cm² tolerance, optimize crust ratios"
         )
 
         # Collect multiple solutions
@@ -98,7 +98,7 @@ class Player10SimpleMulti(Player10):
         attempts = 0
         max_attempts = self.num_angle_attempts * 2
 
-        print(f"=== Collecting solutions with 0.25 cm² tolerance ===")
+        print("=== Collecting solutions with 0.25 cm² tolerance ===")
 
         while len(solutions) < self.max_solutions and attempts < max_attempts:
             attempts += 1
@@ -138,7 +138,7 @@ class Player10SimpleMulti(Player10):
             best_ratios,
         ) = best_solution
 
-        print(f"\nBest solution selected:")
+        print("\nBest solution selected:")
         print(f"  Area span: {best_area_span:.3f} cm²")
         print(f"  Area std dev: {best_area_std:.3f} cm²")
         print(f"  Ratio variance: {best_ratio_variance:.4f}")
@@ -147,13 +147,13 @@ class Player10SimpleMulti(Player10):
 
         # Final validation
         spec_threshold = 0.5
-        print(f"\nFinal validation:")
+        print("\nFinal validation:")
         print(f"  Area span: {best_area_span:.3f} cm²")
         print(f"  Specification threshold: {spec_threshold} cm²")
         if best_area_span < spec_threshold:
-            print(f"  ✓ SPECIFICATION COMPLIANT")
+            print("  ✓ SPECIFICATION COMPLIANT")
         else:
-            print(f"  ⚠️  SPECIFICATION VIOLATION")
+            print("  ⚠️  SPECIFICATION VIOLATION")
 
         return best_cuts
 

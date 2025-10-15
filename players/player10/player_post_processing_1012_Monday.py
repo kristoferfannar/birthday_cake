@@ -4,7 +4,6 @@ import random
 from statistics import stdev
 import copy
 import yaml
-import os
 from pathlib import Path
 
 from players.player import Player
@@ -433,7 +432,7 @@ class Player10(Player):
         test_cake = cake_copy.copy()
         try:
             # Find which piece gets created
-            pieces_before = [p.area for p in test_cake.get_pieces()]
+            [p.area for p in test_cake.get_pieces()]
             test_cake.cut(from_p, to_p)
             pieces_after = test_cake.get_pieces()
 
@@ -667,7 +666,7 @@ class Player10(Player):
             Optimized cuts
         """
         print(f"\n{'=' * 70}")
-        print(f"GRADIENT DESCENT POST-PROCESSING")
+        print("GRADIENT DESCENT POST-PROCESSING")
         print(f"{'=' * 70}")
         print(f"Iterations: {self.gd_iterations}")
         print(f"Learning rate: {self.gd_position_lr} per iteration")
@@ -823,7 +822,7 @@ class Player10(Player):
 
         # Print final comparison
         print(f"\n{'=' * 70}")
-        print(f"OPTIMIZATION COMPLETE")
+        print("OPTIMIZATION COMPLETE")
         print(f"{'=' * 70}")
         print(f"Initial score: {initial_score:.6f}")
         print(f"Final score:   {best_score:.6f}")
@@ -832,14 +831,14 @@ class Player10(Player):
         )
 
         # Detailed comparison
-        print(f"\n--- Initial Cuts ---")
+        print("\n--- Initial Cuts ---")
         self._print_cut_details(initial_cuts)
 
-        print(f"\n--- Final Cuts (After Optimization) ---")
+        print("\n--- Final Cuts (After Optimization) ---")
         self._print_cut_details(final_cuts)
 
         # Coordinate changes
-        print(f"\n--- Coordinate Changes ---")
+        print("\n--- Coordinate Changes ---")
         for i, (initial_cut, final_cut) in enumerate(zip(initial_cuts, final_cuts)):
             from_dist = final_cut[0].distance(initial_cut[0])
             to_dist = final_cut[1].distance(initial_cut[1])
@@ -874,12 +873,12 @@ class Player10(Player):
         final_cuts: list[tuple[Point, Point]],
     ):
         """Generate and save visualization plots."""
-        print(f"\nGenerating visualizations...")
+        print("\nGenerating visualizations...")
 
         plt = self.plt
 
         # Create figure with multiple subplots
-        fig = plt.figure(figsize=(16, 12))
+        plt.figure(figsize=(16, 12))
 
         # 1. Metrics over iterations (top row)
         ax1 = plt.subplot(3, 3, 1)
@@ -1354,7 +1353,7 @@ class Player10(Player):
         target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
         print(f"TARGET AREA: {target_area:.2f} cm²")
         print(f"TARGET CRUST RATIO: {target_ratio:.3f}")
-        print(f"Strategy: Greedy cutting with random ratio+angle exploration\n")
+        print("Strategy: Greedy cutting with random ratio+angle exploration\n")
 
         # Get initial cuts from the greedy algorithm
         initial_cuts = self._greedy_ratio_angle_cutting(target_area, target_ratio)
@@ -1711,7 +1710,7 @@ class Player10(Player):
                         best_size = piece_area
 
             if best_cut is None:
-                print(f"  Failed: No valid cut found")
+                print("  Failed: No valid cut found")
                 continue
 
             from_p, to_p = best_cut

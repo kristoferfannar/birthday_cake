@@ -353,7 +353,7 @@ class Player10MultiStage(Player):
             List of (cuts, area_span, area_std, ratio_variance, areas, ratios) tuples
         """
         print(
-            f"=== STAGE 1: Systematic solution collection with 0.25 cm² tolerance ==="
+            "=== STAGE 1: Systematic solution collection with 0.25 cm² tolerance ==="
         )
 
         # Use systematic approach to collect all possible solutions
@@ -396,7 +396,7 @@ class Player10MultiStage(Player):
         2. Systematically exploring combinations of these positions
         3. Collecting all complete solutions that meet the tolerance
         """
-        print(f"  Exploring all systematic solutions with 0.25 cm² tolerance...")
+        print("  Exploring all systematic solutions with 0.25 cm² tolerance...")
 
         all_solutions = []
         cake_copy = self.cake.copy()
@@ -650,7 +650,7 @@ class Player10MultiStage(Player):
                 f"   Best solution has area span: {min(sol[1] for sol in valid_solutions):.3f} cm²"
             )
             print(
-                f"   Using best available solution despite specification violation..."
+                "   Using best available solution despite specification violation..."
             )
             # Use the best solution even if it doesn't meet spec
             solutions_to_consider = valid_solutions
@@ -673,7 +673,7 @@ class Player10MultiStage(Player):
             best_ratios,
         ) = best_solution
 
-        print(f"Best solution selected:")
+        print("Best solution selected:")
         print(
             f"  Area span: {best_area_span:.3f} cm² {'✓' if best_area_span < spec_threshold else '⚠️'}"
         )
@@ -722,14 +722,14 @@ class Player10MultiStage(Player):
             spec_threshold = 0.5
 
             print(f"\n{'=' * 50}")
-            print(f"FINAL VALIDATION:")
+            print("FINAL VALIDATION:")
             print(f"  Area span: {final_area_span:.3f} cm²")
             print(f"  Area std dev: {final_area_std:.3f} cm²")
             print(f"  Specification threshold: {spec_threshold} cm²")
             if final_area_span < spec_threshold:
-                print(f"  ✓ SPECIFICATION COMPLIANT")
+                print("  ✓ SPECIFICATION COMPLIANT")
             else:
-                print(f"  ⚠️  SPECIFICATION VIOLATION")
+                print("  ⚠️  SPECIFICATION VIOLATION")
             print(f"  Ratio variance: {final_ratio_variance:.4f}")
             print(f"{'=' * 50}\n")
 
