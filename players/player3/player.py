@@ -114,7 +114,7 @@ class Player3(Player):
         best_cut = None
         best_ratio_diff = float("inf")
         best_split = None
-        #best_ratio = None
+        # best_ratio = None
 
         # ---------- PARALLEL RATIO EVALUATION ----------
         results = []
@@ -137,7 +137,7 @@ class Player3(Player):
                 best_ratio_diff = result["ratio_diff"]
                 best_cut = result["cut"]
                 best_split = result["split"]
-                #best_ratio = result["ratio"]
+                # best_ratio = result["ratio"]
 
         if best_cut is None or best_split is None:
             print("No valid cut found for any ratio, stopping.")
