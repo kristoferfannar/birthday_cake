@@ -22,7 +22,7 @@ RATIO_VARIANCE_THRESHOLD = 3  # Maximum allowed crust ratio variance
 MIN_COMPUTATION_RATIO = 0.5  # Minimum computation ratio before giving up
 DEFAULT_MAX_REPEAT_TIMES = 20  # Maximum number of retry attempts
 TIME_LIMIT_SECONDS = 60 * 4.5  # Maximum time limit before timeout
-DEFAULT_MINI_TIME = 60 * 1.5  # Time threshold for computation ratio decay
+DEFAULT_MINI_TIME = 60 * 1  # Time threshold for computation ratio decay
 
 
 class Player10(Player):
