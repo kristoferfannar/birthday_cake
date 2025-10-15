@@ -480,4 +480,5 @@ class Player1(Player):
 
         if len(cuts) > n - 1:
             cuts = cuts[: n - 1]
+
         return cuts
