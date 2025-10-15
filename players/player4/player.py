@@ -50,6 +50,21 @@ class Player4(Player):
         print(
             f"Player 4: Search complete, took {self.end_time - self.start_time} seconds."
         )
+        while result is None and self.end_time - self.start_time < 300:
+            self.N_SWEEP_DIRECTIONS = self.N_SWEEP_DIRECTIONS * 2
+            print(
+                f"Increasing sweep directions to {self.N_SWEEP_DIRECTIONS} and retrying..."
+            )
+            result = self.DFS(self.cake.exterior_shape, self.children)
+            self.end_time = time.time()
+        if result is None:
+            print("Player 4: No solution found.")
+            result = []
+
+        self.profiler.disable()
+        stats = pstats.Stats(self.profiler)
+        stats.sort_stats("cumulative")
+        stats.print_stats(10)
         return result
 
     def DFS(self, piece: Polygon, children: int) -> list[tuple[Point, Point]]:
@@ -128,8 +143,13 @@ class Player4(Player):
             for interior in piece.interiors:
                 coords.extend(list(interior.coords))
 
-        # For each angle, generate all cuts for that angle, then sort and yield them
-        for angle_deg in range(0, 180, 180 // N_SWEEP_DIRECTIONS):
+        # For each angle, generate all cuts for that angle, then sort and filter
+        candidate_cuts = []
+        cut_angles = []
+        degrees_per_cut = 180 / self.N_SWEEP_DIRECTIONS
+        for i in range(self.N_SWEEP_DIRECTIONS):
+            cut_angles.append(i * degrees_per_cut)
+        for angle_deg in cut_angles:
             angle_rad = math.radians(angle_deg)
 
             # Normal vector (direction we sweep along)
@@ -254,4 +274,175 @@ class Player4(Player):
             for i, (cut, score) in enumerate(angle_cuts):
                 if i >= N_BEST_CUT_CANDIDATES_TO_TRY:
                     break
-                yield cut
+
+        # Lower error is better
+        print(f"Found {len(candidate_cuts)} cuts.")
+        candidate_cuts.sort(key=lambda x: x[1])
+        return [c[0] for c in candidate_cuts]
+
+    def generate_and_filter_cuts_convex(self, piece: Polygon, children: int) -> list:
+        """
+        Sweeps from centroid outward for each angle.
+        Assumes piece is convex, so each sweep line intersects boundary at exactly two points.
+        Also, the area will increase monotonically as we sweep outward from centroid.
+        Thus, we can use binary search.
+        """
+        # Collect all boundary coordinates once
+        coords = list(piece.exterior.coords)
+        if piece.interiors:
+            for interior in piece.interiors:
+                coords.extend(list(interior.coords))
+
+        if piece.area < 2 * self.final_piece_min_area:
+            print(f"Piece too small to cut, area {piece.area}.")
+            return []
+
+        candidate_cuts = []
+        cut_angles = []
+        degrees_per_cut = 180 / self.N_SWEEP_DIRECTIONS
+        for i in range(self.N_SWEEP_DIRECTIONS):
+            cut_angles.append(i * degrees_per_cut)
+        for angle_deg in cut_angles:
+            angle_rad = math.radians(angle_deg)
+
+            # Normal vector (direction we sweep along)
+            normal_x = math.cos(angle_rad)
+            normal_y = math.sin(angle_rad)
+
+            # Line direction (perpendicular to normal)
+            line_dx = -math.sin(angle_rad)
+            line_dy = math.cos(angle_rad)
+
+            # Project all boundary points onto the normal axis to find sweep range
+            projections = [x * normal_x + y * normal_y for x, y in coords]
+            min_proj = min(projections)
+            max_proj = max(projections)
+
+            # Binary search for a cut that creates valid areas
+            # We want: min_area <= piece1_area <= total_area - min_area
+            left = min_proj
+            right = max_proj
+            tolerance = 0.01  # 0.01 cm tolerance
+
+            search_direction_determined = False
+            piece1_grows_with_projection = True  # will be set on first iteration
+
+            while right - left > tolerance:
+                mid = (left + right) / 2
+
+                # Create a line at this projection
+                center_x = mid * normal_x
+                center_y = mid * normal_y
+
+                # Extend the line far enough to cover the polygon
+                extension = 1000
+                p1 = (center_x - extension * line_dx, center_y - extension * line_dy)
+                p2 = (center_x + extension * line_dx, center_y + extension * line_dy)
+
+                sweep_line = LineString([p1, p2])
+                intersection = sweep_line.intersection(piece.boundary)
+
+                if intersection.is_empty:
+                    # Shouldn't happen for valid convex polygons
+                    break
+
+                # Extract points from the intersection
+                points: list[Point] = []
+                if intersection.geom_type == "Point":
+                    points = [intersection]
+                elif intersection.geom_type == "MultiPoint":
+                    points = list(intersection.geoms)
+                elif intersection.geom_type == "GeometryCollection":
+                    points = [
+                        geom for geom in intersection.geoms if geom.geom_type == "Point"
+                    ]
+
+                # For convex polygons, we should get exactly 2 intersection points
+                if len(points) != 2:
+                    break
+
+                from_p: Point = points[0]
+                to_p: Point = points[1]
+                line = LineString([from_p, to_p])
+
+                try:
+                    split_result = split(piece, line)
+                    if len(split_result.geoms) != 2:
+                        break
+
+                    piece1, piece2 = split_result.geoms
+                    piece1_area = piece1.area
+                    piece2_area = piece2.area
+
+                    # On first iteration, determine which piece grows with increasing projection
+                    if not search_direction_determined:
+                        # Try a slightly higher projection to see which piece grows
+                        test_proj = mid + tolerance * 2
+                        test_center_x = test_proj * normal_x
+                        test_center_y = test_proj * normal_y
+                        test_p1 = (
+                            test_center_x - extension * line_dx,
+                            test_center_y - extension * line_dy,
+                        )
+                        test_p2 = (
+                            test_center_x + extension * line_dx,
+                            test_center_y + extension * line_dy,
+                        )
+                        test_line = LineString([test_p1, test_p2])
+
+                        try:
+                            test_split = split(piece, test_line)
+                            if len(test_split.geoms) == 2:
+                                test_piece1, test_piece2 = test_split.geoms
+                                # If piece1 area increased, piece1 grows with projection
+                                piece1_grows_with_projection = (
+                                    test_piece1.area > piece1_area
+                                )
+                                search_direction_determined = True
+                        except:  # noqa: E722
+                            pass
+
+                    # Check if both pieces satisfy minimum area constraint
+                    if (
+                        piece1_area >= self.final_piece_min_area
+                        and piece2_area >= self.final_piece_min_area
+                    ):
+                        # Found a valid cut! Calculate ratio and store it
+                        piece1_ratio = self.cake.get_piece_ratio(piece1)
+                        piece2_ratio = self.cake.get_piece_ratio(piece2)
+
+                        ratio1_error = abs(piece1_ratio - self.final_piece_target_ratio)
+                        ratio2_error = abs(piece2_ratio - self.final_piece_target_ratio)
+                        ratio_error = ratio1_error + ratio2_error
+
+                        candidate_cuts.append(((from_p, to_p), ratio_error))
+                        break  # Early terminate for this angle
+
+                    # Binary search logic: adjust search space based on which constraint is violated
+                    if piece1_area < self.final_piece_min_area:
+                        # piece1 is too small
+                        if piece1_grows_with_projection:
+                            left = mid  # Move forward to grow piece1
+                        else:
+                            right = mid  # Move backward to grow piece1
+                    else:
+                        # piece2 is too small
+                        if piece1_grows_with_projection:
+                            right = mid  # Move backward to grow piece2
+                        else:
+                            left = mid  # Move forward to grow piece2
+
+                except Exception:
+                    # If we can't split properly, this position doesn't work
+                    # Try moving toward a more central position
+                    if mid < (min_proj + max_proj) / 2:
+                        left = mid
+                    else:
+                        right = mid
+
+        print(
+            f"Found {len(candidate_cuts)} cuts using binary search (convex optimization)."
+        )
+        # Lower error is better
+        candidate_cuts.sort(key=lambda x: x[1])
+        return [c[0] for c in candidate_cuts]
