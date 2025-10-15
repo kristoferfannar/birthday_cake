@@ -158,7 +158,7 @@ class Player7(Player):
                     candidate_cuts.append((score, from_p, to_p))
             candidate_cuts.sort(key=lambda x: x[0])
             candidate_cuts = candidate_cuts[
-                :self.top_k_cuts
+                : self.top_k_cuts
             ]  # Keep only the best top_k_cuts candidates so far
 
         if not candidate_cuts:
@@ -313,18 +313,34 @@ class Player7(Player):
     def get_cuts(self) -> list[tuple[Point, Point]]:
         # Special case for batman.csv with 8 children
         print(self.cake_path, self.children)
-        if self.cake_path and self.cake_path.endswith("player7/batman.csv") and self.children == 8:
+        if (
+            self.cake_path
+            and self.cake_path.endswith("player7/batman.csv")
+            and self.children == 8
+        ):
             predefined_points = [
                 (Point(21.0, 14.0), Point(21.0, 3.0)),
-                (Point(-6.245004513516506e-17, -3.122502256758253e-17), Point(21.0, 8.119)),
+                (
+                    Point(-6.245004513516506e-17, -3.122502256758253e-17),
+                    Point(21.0, 8.119),
+                ),
                 (Point(41.77774999999999, 0.0), Point(21.0, 8.178749999999999)),
                 (Point(12.5, 0.0), Point(13.449793911592367, 5.199946512772307)),
-                (Point(33.730128890328245, 8.746025778065675), Point(26.823347879877964, 5.886504377998016)),
-                (Point(29.028249999999993, 0.0), Point(28.73972019815789, 5.132162348753652)),
-                (Point(8.447827367657633, 8.710434526468452), Point(15.327442155213115, 5.925881088484536)),
+                (
+                    Point(33.730128890328245, 8.746025778065675),
+                    Point(26.823347879877964, 5.886504377998016),
+                ),
+                (
+                    Point(29.028249999999993, 0.0),
+                    Point(28.73972019815789, 5.132162348753652),
+                ),
+                (
+                    Point(8.447827367657633, 8.710434526468452),
+                    Point(15.327442155213115, 5.925881088484536),
+                ),
             ]
             return predefined_points
-        
+
         self.moves.clear()  # Reset moves list
         start = time.time()
         for cut in range(self.children - 1):
