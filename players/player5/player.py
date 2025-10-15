@@ -32,20 +32,27 @@ class Player5(Player):
         cake_copy = self.copy_cake(self.cake)
         try:
             cake_copy.cut(from_p, to_p)
+
             for piece in cake_copy.exterior_pieces:
                 piece_size = piece.area
                 area_multiple = round(piece_size / self.target_area)
                 nearest_area_multiple = area_multiple * self.target_area
-                area_deviation = abs(piece_size - nearest_area_multiple)
-                if area_deviation > self.max_area_deviation:
+                if abs(piece_size - nearest_area_multiple) > self.max_area_deviation:
                     return float("inf")
-            ratio_deviation_total = 0.0
+
+            sumsq = 0.0
+            max_dev = 0.0
             for piece in cake_copy.exterior_pieces:
                 interior_ratio = cake_copy.get_piece_ratio(piece)
-                piece_crust_ratio = 1 - interior_ratio
-                crust_ratio_deviation = piece_crust_ratio - self.target_crust_ratio
-                ratio_deviation_total += crust_ratio_deviation**2
-            return ratio_deviation_total
+                crust_ratio = 1 - interior_ratio
+                d = crust_ratio - self.target_crust_ratio
+                k_children = max(1, round(piece.area / self.target_area))
+                sumsq += k_children * (d * d)
+                if abs(d) > max_dev:
+                    max_dev = abs(d)
+
+            return sumsq + 0.5 * max_dev
+
         except Exception:
             return float("inf")
 
