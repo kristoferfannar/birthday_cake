@@ -50,7 +50,6 @@ def _long_line(theta: float, c: float, pad: float = 1e5) -> LineString:
     )
 
 
-
 def _bounds_proj(P: Polygon, theta: float) -> Tuple[float, float]:
     xmin, ymin, xmax, ymax = P.bounds
     c, s = math.cos(theta), math.sin(theta)
