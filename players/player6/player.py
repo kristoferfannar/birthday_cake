@@ -599,7 +599,7 @@ class Player6(Player):
         # area_scores = [abs(polygon.area - self.target_area) for polygon in polygons]
         area_scores = [small_area_score, large_area_score]
         ratio_scores = [
-            abs(self.get_piece_ratio(polygon) - self.target_ratio)
+            abs(self.get_piece_ratio(polygon) - self.target_ratio) / self.target_ratio
             for polygon in polygons
         ]
         # always looking at largest area error - never want it to be too big
@@ -611,7 +611,7 @@ class Player6(Player):
         # If difference from target area < 0.125, treat it as equal → rely on ratio
         if area_score < 0.245:
             area_score = 0.0
-        if ratio_score <= 0.025:
+        if ratio_score <= 0.015:
             ratio_score = 0.0
 
         # adding line length as the last factor as after dividing area equally we would love to have more interior !
