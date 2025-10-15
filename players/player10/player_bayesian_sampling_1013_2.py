@@ -774,8 +774,7 @@ class Player10(Player):
             )
 
             # Split attempts into batches for each process
-            
-            
+
             # Process attempts sequentially (simplified for now to avoid multiprocessing issues)
             print(
                 f"  Phase 1: Processing {len(attempts_to_try)} attempts sequentially..."
@@ -830,8 +829,6 @@ class Player10(Player):
                     f"  Phase 2: Trying {self.phrase_two_attempts} more angles with best ratio across {self.num_of_processes} processes..."
                 )
 
-               
-
                 # Generate angles for phase 2 using Bayesian sampling
                 print(
                     f"  Phase 2: Using Bayesian sampling with {self.phrase_two_attempts} attempts..."
@@ -849,8 +846,6 @@ class Player10(Player):
                 ]
 
                 # Split phase 2 attempts into batches for each process
-                
-            
 
                 # Process attempts sequentially (simplified for now to avoid multiprocessing issues)
                 print(

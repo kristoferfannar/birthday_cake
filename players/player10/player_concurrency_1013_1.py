@@ -495,8 +495,6 @@ class Player10(Player):
                     f"  Phase 2: Trying {self.phrase_two_attempts} more angles with best ratio across {self.num_of_processes} processes..."
                 )
 
-                
-
                 # Generate angles for phase 2
                 angle_step = 360.0 / self.phrase_two_attempts
                 phase2_angles = [

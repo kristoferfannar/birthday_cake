@@ -352,9 +352,7 @@ class Player10MultiStage(Player):
         Returns:
             List of (cuts, area_span, area_std, ratio_variance, areas, ratios) tuples
         """
-        print(
-            "=== STAGE 1: Systematic solution collection with 0.25 cm² tolerance ==="
-        )
+        print("=== STAGE 1: Systematic solution collection with 0.25 cm² tolerance ===")
 
         # Use systematic approach to collect all possible solutions
         all_solutions = self._generate_all_systematic_solutions(
@@ -649,9 +647,7 @@ class Player10MultiStage(Player):
             print(
                 f"   Best solution has area span: {min(sol[1] for sol in valid_solutions):.3f} cm²"
             )
-            print(
-                "   Using best available solution despite specification violation..."
-            )
+            print("   Using best available solution despite specification violation...")
             # Use the best solution even if it doesn't meet spec
             solutions_to_consider = valid_solutions
         else:
