@@ -113,6 +113,7 @@ def main():
         elif returncode == TIMEOUT_ERROR_CODE:
             line = f"{arg[1]},{arg[3]},{arg[5]},{-1},{-1},{CPU_SECONDS:.4f}"
         else:
+            print(f"player failed: {err}")
             line = f"{arg[1]},{arg[3]},{arg[5]},{-1},{-1},{-1}"
 
         writeline("results.csv", line)
