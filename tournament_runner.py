@@ -104,7 +104,7 @@ def main():
 
     for arg in combos_as_args(parameters):
         args = ["uv", "run", "main.py"] + arg
-        print(f"##\n{args}")
+        print(f"##\n{args}", flush=True)
 
         returncode, _, err, cpu_seconds = run_with_timeout(args, CPU_SECONDS)
 
@@ -117,7 +117,7 @@ def main():
             line = f"{arg[1]},{arg[3]},{arg[5]},{-1},{-1},{-1}"
 
         writeline("results.csv", line)
-        print(line)
+        print(line, flush=True)
 
 
 if __name__ == "__main__":
