@@ -116,7 +116,7 @@ def main():
             print(f"player failed: {err}")
             line = f"{arg[1]},{arg[3]},{arg[5]},{-1},{-1},{-1}"
 
-        writeline("results.csv", line)
+        writeline(filename, line)
         print(line, flush=True)
 
 
