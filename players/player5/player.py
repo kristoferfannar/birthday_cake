@@ -3,8 +3,6 @@ from shapely.geometry import LineString as LS
 from players.player import Player
 from src.cake import Cake
 import math
-import time
-from random import shuffle
 from typing import List, Tuple, Optional
 
 
