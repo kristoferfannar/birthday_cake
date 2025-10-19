@@ -2,7 +2,7 @@ from shapely import Point, LineString, MultiPoint
 from shapely.geometry import Polygon
 from shapely.ops import split
 from typing import cast
-from math import radians, sin, cos, pi
+from math import radians, sin, cos
 import src.constants as c
 from players.player import Player
 from players.random_player import RandomPlayer
@@ -28,8 +28,6 @@ class CrustOptimizingPlayer(Player):
         self.target_area_tolerance = 0.0005
         self.max_crust_points = 3
         self.angle_increment = 15  # Degrees
-        self.offset = max(min(100 * self.children, 900), 500)
-        self.num_candidates = 100
 
     # ---------- Utility methods ----------
 
@@ -127,26 +125,20 @@ class CrustOptimizingPlayer(Player):
         if len(split_pieces) < 2:
             return float("inf"), float("inf")
 
-        # Calculate metrics for the first piece
-        piece1 = split_pieces[0]
-        crust_precision_1 = abs(self.cake.get_piece_ratio(piece1) - crust_ratio)
-        closest_target_area_1 = min(Area_list, key=lambda a: abs(a - piece1.area))
-        cake_precision_1 = (
-            abs(piece1.area - closest_target_area_1) / self.cake.exterior_shape.area
-        )
+        if split_pieces[0].area < split_pieces[1].area:
+            Area_piece = split_pieces[0].area
+            new_piece_crust_ratio = self.cake.get_piece_ratio(split_pieces[0])
+        else:
+            Area_piece = split_pieces[1].area
+            new_piece_crust_ratio = self.cake.get_piece_ratio(split_pieces[1])
 
-        # Calculate metrics for the second piece
-        piece2 = split_pieces[1]
-        crust_precision_2 = abs(self.cake.get_piece_ratio(piece2) - crust_ratio)
-        closest_target_area_2 = min(Area_list, key=lambda a: abs(a - piece2.area))
-        cake_precision_2 = (
-            abs(piece2.area - closest_target_area_2) / self.cake.exterior_shape.area
+        closest_target_area = min(Area_list, key=lambda a: abs(a - Area_piece))
+        cake_precision = (
+            abs(Area_piece - closest_target_area) / self.cake.exterior_shape.area
         )
+        crust_precision = abs(new_piece_crust_ratio - crust_ratio)
 
-        # Return the maximum of the two for both cake and crust precision
-        return max(cake_precision_1, cake_precision_2), max(
-            crust_precision_1, crust_precision_2
-        )
+        return cake_precision, crust_precision
 
     def get_weight(
         self, p1: Point, p2: Point, piece: Polygon, Goal_ratio: float
@@ -209,7 +201,7 @@ class CrustOptimizingPlayer(Player):
             search_range = max(bounds[2] - bounds[0], bounds[3] - bounds[1]) * 2
 
             # Brute-force offsets
-            num_offsets = self.offset
+            num_offsets = 500
             step_size = search_range / num_offsets
 
             for i in range(num_offsets):
@@ -242,163 +234,13 @@ class CrustOptimizingPlayer(Player):
         line = self._get_line_at_angle(cut_center_x, cut_center_y, angle, search_range)
         return self.find_cuts(line, piece)
 
-    # ---------- Binary Search Algorithm ----------
-
-    def point_side(self, p1, p2, p3):
-        # Computes if p3 is on the left or right of line p1-p2
-        x1, y1 = p1.x, p1.y
-        x2, y2 = p2.x, p2.y
-        x3, y3 = p3.x, p3.y
-
-        cross = (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1)
-
-        if cross > 0:
-            return "left"
-        elif cross < 0:
-            return "right"
-        else:
-            return "collinear"
-
-    def line_bound_given_PA(self, mid, piece, degree):
-        left_bound, below_bound, right_bound, above_bound = piece.bounds
-        # print("l, b, r, a ", left_bound, below_bound, right_bound, above_bound)
-        upper_left = (left_bound, above_bound)
-        width = right_bound - left_bound
-        height = above_bound - below_bound
-        bar_dimension = (width**2 + height**2) ** 0.5
-
-        # First, we find the boundary of the cake, then starting from
-        # the upper left, we find the distance to the lower right,
-        # this is the bar_dimension varaible. At this point, we try to cut
-        # at mid*bar_dimension starting from the upper right point
-        # with the correct degree.
-
-        rad = radians(degree)
-        rad_perp = rad + pi / 2
-
-        # Initial point for our line
-        point_x = upper_left[0] + mid * bar_dimension * cos(rad_perp)
-        point_y = upper_left[1] - mid * bar_dimension * sin(rad_perp)
-
-        # These give the endpoints, Note that since we multiply by bar_dimension, this will be a huge line
-        offx = cos(rad) * bar_dimension
-        offy = sin(rad) * bar_dimension
-
-        p1 = (point_x - offx, point_y - offy)
-        p2 = (point_x + offx, point_y + offy)
-        cut_line = LineString([p1, p2])
-        return cut_line, p1, p2
-
-    def find_actual_cuts(self, line, piece):
-        intersection = line.intersection(piece.boundary)
-
-        if intersection.is_empty:
-            return False, 0, 0
-        elif intersection.geom_type == "Point":
-            return False, 0, 0
-
-        points = []
-        if intersection.geom_type == "LineString":
-            return False, 0, 0
-        elif intersection.geom_type == "MultiPoint":
-            points = list(intersection.geoms)
-
-        if len(points) < 2:
-            return False, 0, 0
-
-        return True, points[0], points[1]
-
-    def get_area_with_scaler(self, mid, piece, degree):
-        line, p1, p2 = self.line_bound_given_PA(mid, piece, degree)
-        # This first one find a "big sweeping cut" line that just cuts at the right degree and mid percentage
-
-        found, p1, p2 = self.find_actual_cuts(line, piece)
-        # Given that first line, we find the actual endpoints
-
-        if not found:
-            return False, 0, 0, 0
-
-        pieces = split(piece, line)
-
-        if len(pieces.geoms) != 2:
-            return False, 0, 0, 0
-
-        piece1, piece2 = pieces.geoms
-
-        centroid1 = piece1.centroid
-
-        if self.point_side(Point(p1), Point(p2), centroid1) == "left":
-            return True, piece1.area, Point(p1), Point(p2)
-        else:
-            return True, piece2.area, Point(p1), Point(p2)
-
-    def Search_for_angle_area(self, degree, targt_area, piece, Area_list, crust_ratio):
-        # Search for a cut with with valid area and cut made at set degree
-
-        lower_scaler = 0
-        upper_scaler = 1
-
-        for _ in range(15):
-            # Mid is the "percent" if the way through we cut the cake that we set our angle
-            mid = (lower_scaler + upper_scaler) / 2
-            valid_BS, area, p1, p2 = self.get_area_with_scaler(mid, piece, degree)
-
-            if not valid_BS:
-                lower_scaler = mid
-            if area - targt_area < 0.0001:
-                break
-            if area < targt_area:
-                lower_scaler = mid
-            elif area > targt_area:
-                upper_scaler = mid
-            else:
-                break
-
-        # Serch for a piece with the set midpoint. If we find one, we run the same code from the standard algorithm
-        valid_BS, area, p1, p2 = self.get_area_with_scaler(mid, piece, degree)
-        if not valid_BS:
-            return False, 0
-
-        valid, _ = self.cake.cut_is_valid(p1, p2)
-        if not valid:
-            # print(p1, p2)
-            return False, 0
-        # print(p1,p2)
-
-        cake_precision, crust_precision = self.check_precision(
-            p1, p2, Area_list, piece, crust_ratio
-        )
-        if cake_precision == float("inf"):
-            return False, 0
-
-        if cake_precision < self.target_area_tolerance:
-            # print(cake_precision)
-            return True, (cake_precision, p1, p2, crust_precision)
-        return False, 0
-
-    def Binary_Search(self, Area_list, piece, crust_ratio):
-        degree_list = []
-        step = 0.1
-        for i in range(int((360 - 271) / step)):
-            degree_list += [271 + step * i]
-
-        valid_cuts = []
-        for degree in degree_list:
-            for area in Area_list:
-                # Search for a cut with with valid area and cut made at set degree
-                found, cut = self.Search_for_angle_area(
-                    degree, area, piece, Area_list, crust_ratio
-                )
-                if found and cut not in valid_cuts:
-                    valid_cuts += [cut]
-        return valid_cuts
-
     # ---------- Main Algorithm ----------
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         moves: list[tuple[Point, Point]] = []
 
         piece = max(self.cake.get_pieces(), key=lambda p: p.area)
+        crust_ratio = self.cake.get_piece_ratio(piece)
         Total_Area = self.cake.exterior_shape.area
         Area_list = [(Total_Area / self.children) * i for i in range(1, self.children)]
 
@@ -408,10 +250,9 @@ class CrustOptimizingPlayer(Player):
             best_line_list = []
             best_line = [100, None, None, 100]
             piece = max(self.cake.get_pieces(), key=lambda p: p.area)
-            crust_ratio = self.cake.get_piece_ratio(piece)
             piece_boundary = piece.boundary
 
-            num_candidates = self.num_candidates
+            num_candidates = 200
             step_size = piece_boundary.length / num_candidates
             candidates = [
                 piece_boundary.interpolate(i * step_size) for i in range(num_candidates)
@@ -446,34 +287,35 @@ class CrustOptimizingPlayer(Player):
 
             print(f"Found {len(best_line_list)} candidates from the first algorithm.")
 
-            if best_line_list:
+            run_angle_fallback = False
+            if not best_line_list:
+                print("No optimal candidates found. Running angle-based fallback.")
+                run_angle_fallback = True
+            else:
                 # Check the best cut's cake precision from the primary search
                 best_primary_cut = min(best_line_list, key=lambda x: x[3])
-                f"Primary search found cuts, the best precision ({best_primary_cut[3]:.6f}) is not optimal. Running angle-based fallback."
+                if best_primary_cut[3] > 0.02:
+                    print(
+                        f"Primary search found cuts, but the best precision ({best_primary_cut[3]:.6f}) is not optimal. Running angle-based fallback."
+                    )
+                    run_angle_fallback = True
 
-            all_found_cuts = self._find_all_cuts_by_angle(piece, Area_list, crust_ratio)
-            if all_found_cuts:
-                best_line_list.extend(all_found_cuts)
-                print(f"angle bash search found {len(all_found_cuts)} suitable cuts.")
-            else:
-                print("Angle-based search failed to find a suitable cut.")
-
-            all_angle_bst_found_cuts = self.Binary_Search(Area_list, piece, crust_ratio)
-            if all_angle_bst_found_cuts:
-                best_line_list.extend(all_angle_bst_found_cuts)
-                # sorted_data = sorted(all_angle_bst_found_cuts, key=lambda x: x[0], reverse=True)
-                print(
-                    f"Angle-based binary search found {len(all_angle_bst_found_cuts)} suitable cuts."
+            if run_angle_fallback:
+                all_found_cuts = self._find_all_cuts_by_angle(
+                    piece, Area_list, crust_ratio
                 )
-            else:
-                print("Angle-based binary search failed to find a suitable cut.")
+                if all_found_cuts:
+                    best_line_list.extend(all_found_cuts)
+                    print(
+                        f"Angle-based search found {len(all_found_cuts)} suitable cuts."
+                    )
+                else:
+                    print("Angle-based search failed to find a suitable cut.")
 
             if best_line_list:
-                best_line_list.sort(key=lambda x: x[3])
+                best_line_list.sort(key=lambda x: (x[3] + 0.001) * (x[0] + 0.1))
                 bestline = best_line_list[0]
-                print(
-                    "Using best line from candidates or angle search or angle binary search."
-                )
+                print("Using best line from candidates or angle search.")
                 print(
                     f"Cake Precision: {bestline[0]:.6f}, Crust Precision: {bestline[3]:.6f}"
                 )
@@ -484,15 +326,6 @@ class CrustOptimizingPlayer(Player):
                 print("Random strategy as a last resort.")
                 a, b = self.random_player.find_random_cut()
                 bestline = [100, a, b, 100]
-
-            print(self.num_candidates, self.offset)
-            self.num_candidates = self.num_candidates + (450 // self.children)
-            self.offset = max(
-                int(self.offset * ((self.children - 2) / self.children)), 100
-            )
-            self.offset = max(
-                int(self.offset * ((self.children - 2) / self.children)), 100
-            )
 
             moves.append((bestline[1], bestline[2]))
             self.cake.cut(bestline[1], bestline[2])

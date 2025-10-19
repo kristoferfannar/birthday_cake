@@ -45,7 +45,10 @@ def test_all_cakes():
 
 
 if __name__ == "__main__":
-    os.chdir(
-        "/Users/soumilbaldota/birthday_cake"
-    )  # Ensure we're in the right directory
+    # os.chdir(
+    #     "/Users/soumilbaldota/birthday_cake"
+    # )  # Ensure we're in the right directory
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    os.chdir(project_root)
+    print(f"Running tests from: {project_root}")
     results = test_all_cakes()
